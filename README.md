@@ -51,10 +51,10 @@ residual = baseline_n.df["x_QD_QY"]
 
 ## Repository Layout
 
-- [`baseline/`](/home/bing/Dropbox/work/code/repos/BASELINE/baseline) contains the installable package
-- [`scripts/`](/home/bing/Dropbox/work/code/repos/BASELINE/scripts) contains local example and data-generation scripts
-- [`documentation/`](/home/bing/Dropbox/work/code/repos/BASELINE/documentation) contains the reference paper
-- [`data/`](/home/bing/Dropbox/work/code/repos/BASELINE/data) contains synthetic example data
+- [`baseline/`](baseline/) contains the installable package
+- [`scripts/`](scripts/) contains local example and data-generation scripts
+- [`documentation/`](documentation/) contains the reference paper
+- [`data/`](data/) contains synthetic example data
 
 ## Notes on the Implementation
 
@@ -64,4 +64,4 @@ residual = baseline_n.df["x_QD_QY"]
 
 ## Development Status
 
-Known follow-up work is tracked in [`TODO.md`](/home/bing/Dropbox/work/code/repos/BASELINE/TODO.md).
+Known follow-up work is tracked in [`TODO.md`](TODO.md).
