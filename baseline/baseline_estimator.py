@@ -116,7 +116,7 @@ class BaselineEstimator:
         idx, vals = zip(*weight)
         self.QD_step_1c_w = pd.Series(vals, index=pd.to_datetime(idx)).sort_index()
        
-    def step_1d(self, a=-0.5, sigma_days=1/48):
+    def step_1d(self, a=-0.01, sigma_days=1/48):
         """Step 1d: smooth the semi-hourly estimates and resample to full cadence."""
         t_nodes = self.QD_step_1c.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_1c.values
@@ -333,7 +333,11 @@ def weighted_gaussian_smooth(t_nodes, y_nodes, w_nodes, sigma_days):
         if np.sum(mask) == 0:
             y_smooth[i] = np.nan
         else:
-            y_smooth[i] = np.sum(y_nodes[mask] * weights[mask]) / np.sum(weights[mask])
+            weight_sum = np.sum(weights[mask])
+            if weight_sum <= 0:
+                y_smooth[i] = np.nan
+            else:
+                y_smooth[i] = np.sum(y_nodes[mask] * weights[mask]) / weight_sum
 
     return y_smooth
 

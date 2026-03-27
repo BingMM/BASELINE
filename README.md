@@ -10,6 +10,7 @@ The goal of this repository is to provide a transparent and reusable implementat
 
 Implemented:
 
+- Coordinate rotation from `X/Y/Z` to local magnetic `N/E/Z`
 - Variance estimation corresponding to equations 11, 12, and 13
 - Daily baseline estimation, `QD`
 - Yearly trend estimation, `QY`
@@ -34,12 +35,16 @@ The package currently depends on:
 ## Package Usage
 
 ```python
-from baseline import BaselineEstimator, VarianceEstimator
+from baseline import BaselineEstimator, CoordinateRotator, VarianceEstimator
 
-variance = VarianceEstimator(t, Bn, Be, Bz, mlat)
+rotator = CoordinateRotator(t, Bx, By, Bz)
+rotator.rotate()
+bn, be, bz = rotator.get_components()
+
+variance = VarianceEstimator(t, bn, be, bz, mlat)
 variance.estimate()
 
-baseline_n = BaselineEstimator(t, Bn, variance.df["uN"].values, mlat, component="N")
+baseline_n = BaselineEstimator(t, bn, variance.df["uN"].values, mlat, component="N")
 baseline_n.get_baseline()
 
 qd = baseline_n.df["QD"]
