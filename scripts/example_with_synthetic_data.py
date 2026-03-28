@@ -17,8 +17,7 @@ def save_figure(fig, filename):
     fig.savefig(FIGURE_DIR / filename, bbox_inches="tight")
     plt.close(fig)
 
-
-def main():
+if __name__ == "__main__":
     """Run the synthetic-data example and write diagnostic plots."""
     be_truth = np.load(DATA_DIR / "Be_truth.npy")
     bn_truth = np.load(DATA_DIR / "Bn_truth.npy")
@@ -122,7 +121,3 @@ def main():
     plt.xlabel("Time")
     plt.legend()
     save_figure(fig, "step_2d.png")
-
-
-if __name__ == "__main__":
-    main()

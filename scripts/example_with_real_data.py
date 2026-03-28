@@ -49,8 +49,8 @@ def compute_mlat(t, glat, glon):
     apex_by_year = {}
 
     for i, ti in tqdm(enumerate(t), total=t.size, desc="Compute mlat"):
-        timestamp = pd.Timestamp(ti).to_pydatetime()
-        apex = apex_by_year.setdefault(timestamp.year, Apex(timestamp.year, refh=0))
+        year = pd.Timestamp(ti).year
+        apex = apex_by_year.setdefault(year, Apex(year, refh=0))
         mlat[i] = apex.convert(glat, glon, "geo", "apex", height=0)[0]
 
     return mlat

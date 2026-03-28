@@ -100,9 +100,9 @@ class BaselineEstimator:
                         break
                     window_days += 2
 
-                if not np.isfinite(value) and fallback is not None:
-                    # Fall back to the widest finite estimate if the threshold is never met.
-                    value, sigma, window_days = fallback
+                if not np.isfinite(value):
+                    sigma = np.nan
+                    window_days = np.nan
     
                 timestamp = day + pd.Timedelta(minutes=30 * b + 15)
                 results.append((timestamp, value))
@@ -116,18 +116,26 @@ class BaselineEstimator:
         idx, vals = zip(*weight)
         self.QD_step_1c_w = pd.Series(vals, index=pd.to_datetime(idx)).sort_index()
        
-    def step_1d(self, a=-0.01, sigma_days=1/48):
+    def step_1d(self, a=-.5, sigma_days=1/(3*24)):
         """Step 1d: smooth the semi-hourly estimates and resample to full cadence."""
         t_nodes = self.QD_step_1c.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_1c.values
         w_nodes = self.QD_step_1c_w.values
-        y_smooth = weighted_gaussian_smooth(
-            t_nodes, y_nodes, w_nodes, sigma_days=sigma_days
+        y_smooth, sig_m = weighted_gaussian_smooth(
+            t_nodes,
+            y_nodes,
+            w_nodes,
+            sigma_days=sigma_days,
+            min_relative_weight=0.0,
+            adaptive_sigma=True,
+            max_sigma_multiplier=6.0,
         )
     
         t_full = self.df["datetime"].values.astype('datetime64[s]').astype(float)
         y_interp = cubic_convolution_interpolate(t_nodes, y_smooth, t_full, a=a)
     
+        self.y_smooth = y_smooth
+        self.sig_m = sig_m
         self.df["QD"] = y_interp
 
     def step_1e(self):
@@ -190,8 +198,9 @@ class BaselineEstimator:
                     break
                 window_days += 2
 
-            if not np.isfinite(value) and fallback is not None:
-                value, u, window_days = fallback
+            if not np.isfinite(value):
+                u = np.nan
+                window_days = np.nan
     
             timestamp = day + pd.Timedelta(hours=12)
             denom = u * window_days / 17
@@ -207,7 +216,7 @@ class BaselineEstimator:
         t_nodes = self.QD_step_2a.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_2a.values
         w_nodes = self.QD_step_2a_w.values
-        y_smooth = weighted_gaussian_smooth(
+        y_smooth, _ = weighted_gaussian_smooth(
             t_nodes, y_nodes, w_nodes, sigma_days=sigma_days
         )
     
@@ -319,16 +328,44 @@ def cubic_convolution_weight(x, a=-0.5):
     return float(w) if np.ndim(w) == 0 else w
 
 
-def weighted_gaussian_smooth(t_nodes, y_nodes, w_nodes, sigma_days):
+def weighted_gaussian_smooth(
+    t_nodes,
+    y_nodes,
+    w_nodes,
+    sigma_days,
+    min_relative_weight=0.0,
+    adaptive_sigma=False,
+    max_sigma_multiplier=1.0,
+):
     """Apply Gaussian temporal smoothing with user-supplied point weights."""
     y_smooth = np.zeros_like(y_nodes)
-    sigma = sigma_days * 86400.0
+    sig_m = np.ones_like(y_nodes)
+    base_sigma = sigma_days * 86400.0
+    finite_weights = w_nodes[np.isfinite(w_nodes) & (w_nodes > 0)]
+    global_max_weight = np.max(finite_weights) if finite_weights.size > 0 else np.nan
+
+    sigma_values = np.full_like(y_nodes, base_sigma, dtype=float)
+    if adaptive_sigma and np.isfinite(global_max_weight):
+        finite = np.isfinite(w_nodes) & (w_nodes > 0)
+        relative_weight = np.full_like(w_nodes, np.nan, dtype=float)
+        relative_weight[finite] = w_nodes[finite] / global_max_weight
+
+        sigma_multiplier = np.ones_like(w_nodes, dtype=float)
+        sigma_multiplier[finite] = 1.0 / np.sqrt(relative_weight[finite])
+        sigma_multiplier = np.clip(sigma_multiplier, 1.0, max_sigma_multiplier)
+
+        sigma_values[finite] = base_sigma * sigma_multiplier[finite]
+        sig_m = sigma_multiplier
 
     for i, ti in tqdm(enumerate(t_nodes), total=t_nodes.size, desc='Smoothing'):
         dt = t_nodes - ti
-        temporal_weights = np.exp(-0.5 * (dt / sigma)**2)
+        temporal_weights = np.exp(-0.5 * (dt / sigma_values)**2)
         weights = w_nodes * temporal_weights
-        mask = np.isfinite(y_nodes) & np.isfinite(weights)
+        mask = np.isfinite(y_nodes) & np.isfinite(weights) & (weights > 0)
+
+        if np.any(mask) and min_relative_weight > 0:
+            local_max = np.max(weights[mask])
+            mask &= weights >= min_relative_weight * local_max
 
         if np.sum(mask) == 0:
             y_smooth[i] = np.nan
@@ -339,7 +376,7 @@ def weighted_gaussian_smooth(t_nodes, y_nodes, w_nodes, sigma_days):
             else:
                 y_smooth[i] = np.sum(y_nodes[mask] * weights[mask]) / weight_sum
 
-    return y_smooth
+    return y_smooth, sig_m
 
 
 def _get_max_odd_window_size(num_days):

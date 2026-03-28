@@ -76,7 +76,7 @@ class CoordinateRotator:
         t_nodes = self.q_daily.index.values.astype("datetime64[s]").astype(float)
         y_nodes = self.q_daily.values
         weights = np.ones_like(y_nodes, dtype=float)
-        self.q_smooth = weighted_gaussian_smooth(
+        self.q_smooth, self.q_sigma_multiplier = weighted_gaussian_smooth(
             t_nodes,
             y_nodes,
             weights,
