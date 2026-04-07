@@ -36,7 +36,9 @@ if __name__ == "__main__":
     ve.estimate()
 
     be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N")
-    be_n.get_baseline()
+    be_n.get_baseline(step_1d_sigma_days=1/72,
+                      step_1d_adaptive_sigma=True,
+                      step_1d_max_sigma_multiplier=6)
 
     fig = plt.figure(figsize=(15, 9))
     plt.plot(be_n.df["datetime"][:7 * MINUTES_PER_DAY], be_n.df["x"][:7 * MINUTES_PER_DAY], label="Observed magnetic field")

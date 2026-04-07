@@ -5,16 +5,51 @@ from tqdm import tqdm
 class BaselineEstimator:
     """Estimate the daily and yearly baseline terms for one field component."""
     
-    def __init__(self, t, x, u, mlat, component):
-        """Store the component time series and the modified variance weights."""
+    def __init__(
+        self,
+        t,
+        x,
+        u,
+        mlat,
+        component,
+        step_1d_a=-0.5,
+        step_1d_sigma_days=1 / (3 * 24),
+        step_1d_adaptive_sigma=True,
+        step_1d_max_sigma_multiplier=6.0,
+        step_2b_a=-0.5,
+        step_2b_sigma_days=30.0,
+    ):
+        """Store the component time series, weights, and tunable smoothing parameters."""
         self.df = pd.DataFrame({"datetime": t, "x": x, "u": u, "mlat": mlat})
         self.component = component
+        self.step_1d_a = step_1d_a
+        self.step_1d_sigma_days = step_1d_sigma_days
+        self.step_1d_adaptive_sigma = step_1d_adaptive_sigma
+        self.step_1d_max_sigma_multiplier = step_1d_max_sigma_multiplier
+        self.step_2b_a = step_2b_a
+        self.step_2b_sigma_days = step_2b_sigma_days
     
-    def get_baseline(self):
+    def get_baseline(
+        self,
+        step_1d_a=None,
+        step_1d_sigma_days=None,
+        step_1d_adaptive_sigma=None,
+        step_1d_max_sigma_multiplier=None,
+        step_2b_a=None,
+        step_2b_sigma_days=None,
+    ):
         """Run the available baseline-estimation steps in paper order."""
         self.get_FWHM_stat()
-        self.get_QD()
-        self.get_QY()
+        self.get_QD(
+            step_1d_a=step_1d_a,
+            step_1d_sigma_days=step_1d_sigma_days,
+            step_1d_adaptive_sigma=step_1d_adaptive_sigma,
+            step_1d_max_sigma_multiplier=step_1d_max_sigma_multiplier,
+        )
+        self.get_QY(
+            step_2b_a=step_2b_a,
+            step_2b_sigma_days=step_2b_sigma_days,
+        )
         self.get_QO()
 
     def get_FWHM_stat(self):
@@ -116,8 +151,25 @@ class BaselineEstimator:
         idx, vals = zip(*weight)
         self.QD_step_1c_w = pd.Series(vals, index=pd.to_datetime(idx)).sort_index()
        
-    def step_1d(self, a=-.5, sigma_days=1/(3*24)):
+    def step_1d(
+        self,
+        a=None,
+        sigma_days=None,
+        adaptive_sigma=None,
+        max_sigma_multiplier=None,
+    ):
         """Step 1d: smooth the semi-hourly estimates and resample to full cadence."""
+        a = self.step_1d_a if a is None else a
+        sigma_days = self.step_1d_sigma_days if sigma_days is None else sigma_days
+        adaptive_sigma = (
+            self.step_1d_adaptive_sigma if adaptive_sigma is None else adaptive_sigma
+        )
+        max_sigma_multiplier = (
+            self.step_1d_max_sigma_multiplier
+            if max_sigma_multiplier is None
+            else max_sigma_multiplier
+        )
+
         t_nodes = self.QD_step_1c.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_1c.values
         w_nodes = self.QD_step_1c_w.values
@@ -126,9 +178,8 @@ class BaselineEstimator:
             y_nodes,
             w_nodes,
             sigma_days=sigma_days,
-            min_relative_weight=0.0,
-            adaptive_sigma=True,
-            max_sigma_multiplier=6.0,
+            adaptive_sigma=adaptive_sigma,
+            max_sigma_multiplier=max_sigma_multiplier,
         )
     
         t_full = self.df["datetime"].values.astype('datetime64[s]').astype(float)
@@ -142,18 +193,29 @@ class BaselineEstimator:
         """Step 1e: subtract the daily baseline contribution."""
         self.df['x_QD'] = self.df['x'] - self.df['QD']
 
-    def get_QD(self):
+    def get_QD(
+        self,
+        step_1d_a=None,
+        step_1d_sigma_days=None,
+        step_1d_adaptive_sigma=None,
+        step_1d_max_sigma_multiplier=None,
+    ):
         """Compute the full daily baseline term."""
         self.step_1a()
         self.step_1b()
         self.step_1c()
-        self.step_1d()
+        self.step_1d(
+            a=step_1d_a,
+            sigma_days=step_1d_sigma_days,
+            adaptive_sigma=step_1d_adaptive_sigma,
+            max_sigma_multiplier=step_1d_max_sigma_multiplier,
+        )
         self.step_1e()
 
-    def get_QY(self):
+    def get_QY(self, step_2b_a=None, step_2b_sigma_days=None):
         """Compute the yearly trend term."""
         self.step_2a()
-        self.step_2b()
+        self.step_2b(a=step_2b_a, sigma_days=step_2b_sigma_days)
         self.step_2c()
 
     def step_2a(self):
@@ -211,8 +273,11 @@ class BaselineEstimator:
         self.QD_step_2a = pd.Series(vals, index=pd.to_datetime(idx)).sort_index()
         self.QD_step_2a_w = pd.Series(weight, index=pd.to_datetime(idx)).sort_index()
 
-    def step_2b(self, a=-0.5, sigma_days=30.0):
+    def step_2b(self, a=None, sigma_days=None):
         """Step 2b: smooth the daily trend estimates and resample them."""
+        a = self.step_2b_a if a is None else a
+        sigma_days = self.step_2b_sigma_days if sigma_days is None else sigma_days
+
         t_nodes = self.QD_step_2a.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_2a.values
         w_nodes = self.QD_step_2a_w.values
@@ -333,7 +398,6 @@ def weighted_gaussian_smooth(
     y_nodes,
     w_nodes,
     sigma_days,
-    min_relative_weight=0.0,
     adaptive_sigma=False,
     max_sigma_multiplier=1.0,
 ):
@@ -362,10 +426,6 @@ def weighted_gaussian_smooth(
         temporal_weights = np.exp(-0.5 * (dt / sigma_values)**2)
         weights = w_nodes * temporal_weights
         mask = np.isfinite(y_nodes) & np.isfinite(weights) & (weights > 0)
-
-        if np.any(mask) and min_relative_weight > 0:
-            local_max = np.max(weights[mask])
-            mask &= weights >= min_relative_weight * local_max
 
         if np.sum(mask) == 0:
             y_smooth[i] = np.nan
