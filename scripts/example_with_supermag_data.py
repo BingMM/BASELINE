@@ -14,7 +14,9 @@ DATA_DIR = BASE_DIR / "data"
 FIGURE_DIR = BASE_DIR / "figures"
 FIGURE_DIR.mkdir(exist_ok=True)
 
-SM_PATH = DATA_DIR / "DMH_SM_1min_2024_no_BS.netcdf"
+SM_PATH_no_BS = DATA_DIR / "DMH_SM_1min_2024_no_BS.netcdf"
+SM_PATH_no_QD = DATA_DIR / "DMH_SM_1min_2024_no_QD.netcdf"
+SM_PATH = DATA_DIR / "DMH_SM_1min_2024.netcdf"
 GLAT = 76.77
 GLON = 341.37
 MINUTES_PER_DAY = 24 * 60
@@ -34,19 +36,40 @@ def day_slice(start_day, num_days, num_points):
     return slice(start, stop)
 
 
-def load_real_data(csv_path):
+def load_real_data(sm_path, sm_path_no_QD, sm_path_no_BS):
     """Load the DMH CSV file and return timestamps and XYZ components."""
-    dataset = nc.Dataset(csv_path, 'r')
+    dataset_no_BS = nc.Dataset(sm_path_no_BS, 'r')
+    dataset_no_QD = nc.Dataset(sm_path_no_QD, 'r')
+    dataset = nc.Dataset(sm_path, 'r')
     
     t = np.array([datetime(int(yy), int(mm), int(dd), int(HH), int(MM), int(SS)) for yy, mm, dd, HH, MM, SS in zip(dataset.variables['time_yr'][:].filled(np.nan), dataset.variables['time_mo'][:].filled(np.nan), dataset.variables['time_dy'][:].filled(np.nan), dataset.variables['time_hr'][:].filled(np.nan), dataset.variables['time_mt'][:].filled(np.nan), dataset.variables['time_sc'][:].filled(np.nan))])
+    
+    be_no_BS =   dataset_no_BS.variables['dbe_geo'][:].filled(np.nan).flatten()
+    bn_no_BS =   dataset_no_BS.variables['dbn_geo'][:].filled(np.nan).flatten()
+    bu_no_BS = - dataset_no_BS.variables['dbz_geo'][:].filled(np.nan).flatten()
+    
+    be_no_QD =   dataset_no_QD.variables['dbe_geo'][:].filled(np.nan).flatten()
+    bn_no_QD =   dataset_no_QD.variables['dbn_geo'][:].filled(np.nan).flatten()
+    bu_no_QD = - dataset_no_QD.variables['dbz_geo'][:].filled(np.nan).flatten()
     
     be =   dataset.variables['dbe_geo'][:].filled(np.nan).flatten()
     bn =   dataset.variables['dbn_geo'][:].filled(np.nan).flatten()
     bu = - dataset.variables['dbz_geo'][:].filled(np.nan).flatten()
     
     dataset.close()
+    dataset_no_QD.close()
+    dataset_no_BS.close()
     
-    return t, be, bn, bu
+    be_QD = be_no_QD - be
+    bn_QD = bn_no_QD - bn
+    bu_QD = bu_no_QD - bu
+    
+    be_QY = be_no_BS - be_no_QD
+    bn_QY = bn_no_BS - bn_no_QD
+    bu_QY = bu_no_BS - bu_no_QD
+    
+    
+    return t, be, bn, bu, be_QD, bn_QD, bu_QD, be_QY, bn_QY, bu_QY, be_no_BS, bn_no_BS, bu_no_BS
 
 
 def compute_mlat(t, glat, glon):
@@ -63,17 +86,8 @@ def compute_mlat(t, glat, glon):
 
 if __name__ == "__main__":
     """Run the real-data example and write diagnostic plots."""
-    t, be, bn, bu = load_real_data(SM_PATH)
-    mlat = compute_mlat(t, GLAT, GLON)
-
-    ve = VarianceEstimator(t, bn, be, bu, mlat)
-    ve.estimate()
-
-    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N")
-    be_n.get_baseline(step_1d_sigma_days=1/72,
-                      step_1d_adaptive_sigma=True,
-                      step_1d_max_sigma_multiplier=6)
-
+    t, dbe, dbn, dbu, be_QD, bn_QD, bu_QD, be_QY, bn_QY, bu_QY, be, bn, bu = load_real_data(SM_PATH, SM_PATH_no_QD, SM_PATH_no_BS)
+    
     n_points = len(t)
     short_slice = day_slice(0, min(7, max(1, n_points // MINUTES_PER_DAY)), n_points)
     detail_start_day = 5 if n_points >= 7 * MINUTES_PER_DAY else 0
@@ -81,10 +95,70 @@ if __name__ == "__main__":
     detail_slice = day_slice(detail_start_day, detail_days, n_points)
     detail_half_hour_slice = slice(
         detail_start_day * HALF_HOURS_PER_DAY,
-        min(len(be_n.QD_step_1c), (detail_start_day + detail_days) * HALF_HOURS_PER_DAY),
+        min(len(t), (detail_start_day + detail_days) * HALF_HOURS_PER_DAY),
     )
     long_days = min(180, max(1, n_points // MINUTES_PER_DAY))
     long_slice = day_slice(0, long_days, n_points)
+    
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], be[detail_slice])
+    axs[1].plot(t[detail_slice], bn[detail_slice])
+    axs[2].plot(t[detail_slice], bu[detail_slice])
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM.png")
+    
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], dbe[detail_slice])
+    axs[1].plot(t[detail_slice], dbn[detail_slice])
+    axs[2].plot(t[detail_slice], dbu[detail_slice])
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM_db.png")
+
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], be_QD[detail_slice])
+    axs[1].plot(t[detail_slice], bn_QD[detail_slice])
+    axs[2].plot(t[detail_slice], bu_QD[detail_slice])
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM_QD.png")
+    
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], be_QY[detail_slice])
+    axs[1].plot(t[detail_slice], bn_QY[detail_slice])
+    axs[2].plot(t[detail_slice], bu_QY[detail_slice])
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM_QY.png")
+    
+    mlat = compute_mlat(t, GLAT, GLON)
+
+    ve = VarianceEstimator(t, bn, be, bu, mlat)
+    ve.estimate()
+
+    be_e = BaselineEstimator(t, be, ve.df["uE"].values, mlat, component="E", 
+                             typical_value_method='mode', step_1c_plot_diagnostics=False, step_1c_plot_dir="figures/QD_diag")
+    be_e.get_baseline(step_1d_sigma_days=1/72,
+                      step_1d_adaptive_sigma=True,
+                      step_1d_max_sigma_multiplier=6,
+                      )
+
+    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N", 
+                             typical_value_method='mode', step_1c_plot_diagnostics=False, step_1c_plot_dir="figures/QD_diag")
+    be_n.get_baseline(step_1d_sigma_days=1/72,
+                      step_1d_adaptive_sigma=True,
+                      step_1d_max_sigma_multiplier=2)
+    
+    be_u = BaselineEstimator(t, bu, ve.df["uZ"].values, mlat, component="Z", 
+                             typical_value_method='mode', step_1c_plot_diagnostics=False, step_1c_plot_dir="figures/QD_diag")
+    be_u.get_baseline(step_1d_sigma_days=1/72,
+                      step_1d_adaptive_sigma=True,
+                      step_1d_max_sigma_multiplier=6)
 
     fig = plt.figure(figsize=(15, 9))
     plt.plot(be_n.df["datetime"][short_slice], be_n.df["x"][short_slice], label="Observed magnetic field")
@@ -158,3 +232,45 @@ if __name__ == "__main__":
     axs[1].set_xlabel("Time")
     axs[1].set_ylabel("Magnetic field [nT]")
     save_figure(fig, "SM_step_2c.png")
+    
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], dbe[detail_slice])
+    axs[0].plot(t[detail_slice], be_e.df["x_QD_QY"][detail_slice].values)
+    axs[1].plot(t[detail_slice], dbn[detail_slice])
+    axs[1].plot(t[detail_slice], be_n.df["x_QD_QY"][detail_slice].values)
+    axs[2].plot(t[detail_slice], dbu[detail_slice])
+    axs[2].plot(t[detail_slice], be_u.df["x_QD_QY"][detail_slice].values)
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM_db_comp.png")
+
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], be_QD[detail_slice])
+    f = (be_e.QD_step_1c.index >= t[detail_slice][0]) & (be_e.QD_step_1c.index <= t[detail_slice][-1])
+    axs[0].errorbar(be_e.QD_step_1c.index[f], be_e.QD_step_1c.iloc[f], yerr=1/np.sqrt(be_e.QD_step_1c_w.iloc[f]), ls='dotted')
+    axs[0].plot(t[detail_slice], be_e.df['QD'][detail_slice].values)
+    axs[1].plot(t[detail_slice], bn_QD[detail_slice])
+    f = (be_n.QD_step_1c.index >= t[detail_slice][0]) & (be_n.QD_step_1c.index <= t[detail_slice][-1])
+    axs[1].errorbar(be_n.QD_step_1c.index[f], be_n.QD_step_1c.iloc[f], yerr=1/np.sqrt(be_n.QD_step_1c_w.iloc[f]), ls='dotted')
+    axs[1].plot(t[detail_slice], be_n.df['QD'][detail_slice].values)
+    axs[2].plot(t[detail_slice], bu_QD[detail_slice])
+    f = (be_u.QD_step_1c.index >= t[detail_slice][0]) & (be_u.QD_step_1c.index <= t[detail_slice][-1])
+    axs[2].errorbar(be_u.QD_step_1c.index[f], be_u.QD_step_1c.iloc[f], yerr=1/np.sqrt(be_u.QD_step_1c_w.iloc[f]), ls='dotted')
+    axs[2].plot(t[detail_slice], be_u.df['QD'][detail_slice].values)
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM_QD_comp.png")
+    
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], be_QY[detail_slice])
+    axs[0].plot(t[detail_slice], be_e.df["QY"][detail_slice].values)
+    axs[1].plot(t[detail_slice], bn_QY[detail_slice])
+    axs[1].plot(t[detail_slice], be_n.df["QY"][detail_slice].values)
+    axs[2].plot(t[detail_slice], bu_QY[detail_slice])
+    axs[2].plot(t[detail_slice], be_u.df["QY"][detail_slice].values)
+    axs[0].set_title('Be')
+    axs[1].set_title('Bn')
+    axs[2].set_title('Bu')
+    save_figure(fig, "SM_QY_comp.png")

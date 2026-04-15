@@ -1,5 +1,9 @@
+import warnings
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+from scipy.optimize import OptimizeWarning, curve_fit
 from tqdm import tqdm
 
 class BaselineEstimator:
@@ -18,6 +22,10 @@ class BaselineEstimator:
         step_1d_max_sigma_multiplier=6.0,
         step_2b_a=-0.5,
         step_2b_sigma_days=30.0,
+        typical_value_method="irls",
+        typical_value_histogram_bins="fd",
+        step_1c_plot_diagnostics=False,
+        step_1c_plot_dir="figures/QD_diag",
     ):
         """Store the component time series, weights, and tunable smoothing parameters."""
         self.df = pd.DataFrame({"datetime": t, "x": x, "u": u, "mlat": mlat})
@@ -28,6 +36,15 @@ class BaselineEstimator:
         self.step_1d_max_sigma_multiplier = step_1d_max_sigma_multiplier
         self.step_2b_a = step_2b_a
         self.step_2b_sigma_days = step_2b_sigma_days
+        if typical_value_method not in {"irls", "mode"}:
+            raise ValueError("typical_value_method must be one of 'irls' or 'mode'")
+        self.typical_value_method = typical_value_method
+        self.typical_value_histogram_bins = typical_value_histogram_bins
+        self.step_1c_plot_diagnostics = bool(step_1c_plot_diagnostics)
+        step_1c_plot_dir = Path(step_1c_plot_dir)
+        if not step_1c_plot_dir.is_absolute():
+            step_1c_plot_dir = Path(__file__).resolve().parents[1] / step_1c_plot_dir
+        self.step_1c_plot_dir = step_1c_plot_dir
     
     def get_baseline(
         self,
@@ -69,7 +86,7 @@ class BaselineEstimator:
         day = self.df["datetime"].dt.floor("D")
 
         daily = self.df.groupby(day)["x"].apply(
-            lambda values: get_typical_value(values.values)[0]
+            lambda values: self._estimate_typical_value(values.values)[0]
         )
     
         daily.index = daily.index + pd.Timedelta(hours=12)
@@ -107,6 +124,7 @@ class BaselineEstimator:
                 value = np.nan
                 sigma = np.nan
                 fallback = None
+                final_diag = None
     
                 while window_days <= max_window_days:
                     half = window_days // 2
@@ -125,13 +143,21 @@ class BaselineEstimator:
     
                     FWHM_stat = np.mean(self.df.loc[mask, "FWHM_stat"].dropna().values)
                     
-                    mu, sigma = get_typical_value(vals)
+                    if self.step_1c_plot_diagnostics:
+                        mu, sigma, diag = self._estimate_typical_value(
+                            vals,
+                            return_diagnostics=True,
+                        )
+                    else:
+                        mu, sigma = self._estimate_typical_value(vals)
+                        diag = None
                     fallback = (mu, sigma, window_days)
                     
                     fwhm = 2.355 * sigma
 
                     if np.isfinite(fwhm) and fwhm <= FWHM_stat:
                         value = mu
+                        final_diag = diag
                         break
                     window_days += 2
 
@@ -140,6 +166,7 @@ class BaselineEstimator:
                     window_days = np.nan
     
                 timestamp = day + pd.Timedelta(minutes=30 * b + 15)
+                self._maybe_plot_step_1c_diagnostic(timestamp, window_days, final_diag)
                 results.append((timestamp, value))
                 denom = sigma**2 * window_days / 3
                 weight_value = 1 / denom if np.isfinite(denom) and denom > 0 else 0.0
@@ -251,7 +278,7 @@ class BaselineEstimator:
                 FWHM_stat = np.mean(self.df.loc[mask, "FWHM_stat"].dropna().values)
                 u = np.mean(self.df.loc[mask, 'u'].dropna().values)    
     
-                mu, sigma = get_typical_value(vals)
+                mu, sigma = self._estimate_typical_value(vals)
                 fallback = (mu, u, window_days)
                 fwhm = 2.355 * sigma
     
@@ -298,7 +325,71 @@ class BaselineEstimator:
         """Placeholder for the quiet-day residual offset term."""
         1+1
 
-def get_typical_value(vals, max_iter=5, tol=1e-3):
+    def _estimate_typical_value(self, vals, return_diagnostics=False):
+        """Evaluate the configured typical-value estimator."""
+        return get_typical_value(
+            vals,
+            method=self.typical_value_method,
+            histogram_bins=self.typical_value_histogram_bins,
+            return_diagnostics=return_diagnostics,
+        )
+
+    def _maybe_plot_step_1c_diagnostic(self, timestamp, window_days, diagnostics):
+        """Write a diagnostic histogram for one accepted semi-hourly mode estimate."""
+        if not self.step_1c_plot_diagnostics:
+            return
+        if diagnostics is None or not diagnostics.get("fit_success", False):
+            return
+
+        import matplotlib.pyplot as plt
+
+        self.step_1c_plot_dir.mkdir(parents=True, exist_ok=True)
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        centers = diagnostics["centers"]
+        counts = diagnostics["counts"]
+        widths = diagnostics["widths"]
+        ax.bar(centers, counts, width=widths, align="center", alpha=0.6, label="Histogram")
+
+        x_fit = diagnostics["x_fit"]
+        y_fit = diagnostics["y_fit"]
+        ax.plot(x_fit, y_fit, color="tab:red", linewidth=2, label="Gaussian fit")
+        ax.axvline(diagnostics["typical_value"], color="tab:green", linestyle="--", label="Typical value")
+
+        timestamp_pd = pd.Timestamp(timestamp)
+        ax.set_title(f"{self.component} {timestamp_pd:%Y-%m-%d %H:%M} window={int(window_days)} days")
+        ax.set_xlabel("Residual field [nT]")
+        ax.set_ylabel("Count")
+        ax.legend()
+
+        filename = f"{self.component}_{timestamp_pd:%Y%m%dT%H%M%S}.png"
+        fig.savefig(self.step_1c_plot_dir / filename, bbox_inches="tight")
+        plt.close(fig)
+
+
+def get_typical_value(
+    vals,
+    method="irls",
+    histogram_bins="fd",
+    max_iter=5,
+    tol=1e-3,
+    return_diagnostics=False,
+):
+    """Estimate a typical value and spread using a selectable strategy."""
+    if method == "irls":
+        mu, sigma = _get_typical_value_irls(vals, max_iter=max_iter, tol=tol)
+        diagnostics = None
+    elif method == "mode":
+        mu, sigma, diagnostics = _get_typical_value_mode(vals, histogram_bins=histogram_bins)
+    else:
+        raise ValueError("method must be one of 'irls' or 'mode'")
+
+    if return_diagnostics:
+        return mu, sigma, diagnostics
+    return mu, sigma
+
+
+def _get_typical_value_irls(vals, max_iter=5, tol=1e-3):
     """
     Estimate a robust central value and spread using IRLS Gaussian weights.
 
@@ -335,6 +426,114 @@ def get_typical_value(vals, max_iter=5, tol=1e-3):
         mu, sigma = mu_new, sigma_new
 
     return mu, sigma
+
+
+def _get_typical_value_mode(vals, histogram_bins="fd"):
+    """
+    Estimate the typical value from a histogram mode plus a Gaussian fit.
+
+    This follows the paper's stated workflow more closely than the IRLS
+    approximation: derive a binned probability distribution, determine the
+    mode, and fit a Gaussian whose width is later used in the acceptance test.
+    """
+
+    vals = np.asarray(vals, dtype=float)
+    vals = vals[np.isfinite(vals)]
+
+    if vals.size < 5:
+        return np.nan, np.nan, None
+
+    if np.all(vals == vals[0]):
+        return vals[0], 0.0, None
+
+    try:
+        edges = np.histogram_bin_edges(vals, bins=histogram_bins)
+    except ValueError:
+        edges = np.histogram_bin_edges(vals, bins="auto")
+
+    if edges.size < 2 or np.any(~np.isfinite(edges)) or np.allclose(edges[0], edges[-1]):
+        sigma = np.std(vals)
+        return np.median(vals), sigma if np.isfinite(sigma) else np.nan, None
+
+    min_bins = min(64, max(16, int(np.sqrt(vals.size))))
+    num_bins = edges.size - 1
+    if num_bins < min_bins:
+        edges = np.histogram_bin_edges(vals, bins=min_bins)
+
+    counts, edges = np.histogram(vals, bins=edges)
+    counts = counts.astype(float)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    if counts.size == 0 or np.max(counts) <= 0:
+        return np.nan, np.nan, None
+    modal_bins = np.flatnonzero(counts == np.max(counts))
+    mode_value = np.mean(centers[modal_bins])
+
+    sigma0 = 1.4826 * np.median(np.abs(vals - np.median(vals)))
+    if not np.isfinite(sigma0) or sigma0 <= 0:
+        sigma0 = np.std(vals)
+    if not np.isfinite(sigma0) or sigma0 <= 0:
+        return mode_value, 0.0, None
+
+    amp0 = float(np.max(counts))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", OptimizeWarning)
+            params, _ = curve_fit(
+                _gaussian_pdf_shape,
+                centers,
+                counts,
+                p0=(amp0, mode_value, sigma0),
+                bounds=([0.0, np.min(vals), 1e-12], [np.inf, np.max(vals), np.inf]),
+                maxfev=10000,
+            )
+            amplitude, mu_fit, sigma_fit = params
+            sigma_fit = abs(float(sigma_fit))
+            fit_success = True
+    except (RuntimeError, ValueError):
+        amplitude = np.nan
+        mu_fit = np.nan
+        sigma_fit = np.nan
+        fit_success = False
+
+    if not np.isfinite(sigma_fit):
+        sigma_fit = np.std(vals)
+    if not np.isfinite(sigma_fit):
+        return mode_value, np.nan, None
+
+    left = max(modal_bins[0] - 1, 0)
+    right = min(modal_bins[-1] + 1, counts.size - 1)
+    local_mean = np.mean(counts[left:right + 1].astype(float))
+
+    # Paper eq. (4): replace an isolated modal spike with the Gaussian center.
+    if np.isfinite(amplitude) and amplitude > local_mean and np.isfinite(mu_fit):
+        typical_value = mu_fit
+    else:
+        typical_value = mode_value
+
+    diagnostics = None
+    if fit_success:
+        x_fit = np.linspace(edges[0], edges[-1], 512)
+        diagnostics = {
+            "centers": centers,
+            "counts": counts,
+            "widths": np.diff(edges),
+            "mode_value": mode_value,
+            "typical_value": typical_value,
+            "fit_success": True,
+            "amplitude": float(amplitude),
+            "mu_fit": float(mu_fit),
+            "sigma_fit": float(sigma_fit),
+            "x_fit": x_fit,
+            "y_fit": _gaussian_pdf_shape(x_fit, amplitude, mu_fit, sigma_fit),
+        }
+
+    return typical_value, sigma_fit, diagnostics
+
+
+def _gaussian_pdf_shape(x, amplitude, mu, sigma):
+    """Evaluate a Gaussian on histogram-bin centers."""
+    return amplitude * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
 
 
 def cubic_convolution_interpolate(t_nodes, y_nodes, t_full, a=-0.5):
