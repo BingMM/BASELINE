@@ -112,38 +112,6 @@ def compute_mlat(t, glat, glon):
 
     return mlat
 
-
-def build_baseline_estimators(t, component_values, variance_df, mlat, diagnostic_range):
-    """Run the baseline estimator for each component and return them by component key."""
-    start_time, stop_time = diagnostic_range
-    estimators = {}
-    for component, variance_col in COMPONENT_CONFIGS:
-        estimator = BaselineEstimator(
-            t,
-            component_values[component],
-            variance_df[variance_col].values,
-            mlat,
-            component=component,
-            step_1c_min_window_days=5,
-            step_1c_plot_diagnostics=True,
-            step_1c_diagnostic_time_range=(start_time, stop_time),
-            step_1c_plot_dir="figures/QD_diag",
-        )
-        estimator.get_baseline(
-            step_1d_sigma_days=1 / 12,
-            step_1d_adaptive_sigma=False,
-            step_1d_max_sigma_multiplier=6,
-            step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
-            step_1c_checkpoint_path=step_1c_checkpoint_path(
-                component=component,
-                min_window_days=estimator.step_1c_min_window_days,
-            ),
-            reuse_step_1c_checkpoint=REUSE_STEP_1C_CHECKPOINT,
-            write_step_1c_checkpoint=WRITE_STEP_1C_CHECKPOINT,
-        )
-        estimators[component] = estimator
-    return estimators
-
 if __name__ == "__main__":
     """Run the real-data example and write diagnostic plots."""
     t, dbe, dbn, dbu, be_QD, bn_QD, bu_QD, be_QY, bn_QY, bu_QY, be, bn, bu = load_real_data(SM_PATH, SM_PATH_no_QD, SM_PATH_no_BS)
@@ -189,16 +157,48 @@ if __name__ == "__main__":
 
     ve = VarianceEstimator(t, bn, be, bu, mlat)
     ve.estimate()
-    estimators = build_baseline_estimators(
-        t,
-        {"E": be, "N": bn, "Z": bu},
-        ve.df,
-        mlat,
-        (d_start, detail_stop),
-    )
-    be_e = estimators["E"]
-    be_n = estimators["N"]
-    be_u = estimators["Z"]
+    be_e = None
+    be_n = None
+    be_u = None
+
+    for component, variance_col in COMPONENT_CONFIGS:
+        if component == "E":
+            values = be
+        elif component == "N":
+            values = bn
+        else:
+            values = bu
+
+        estimator = BaselineEstimator(
+            t,
+            values,
+            ve.df[variance_col].values,
+            mlat,
+            component=component,
+            step_1c_min_window_days=5,
+            step_1c_plot_diagnostics=True,
+            step_1c_diagnostic_time_range=(d_start, detail_stop),
+            step_1c_plot_dir="figures/QD_diag",
+        )
+        estimator.get_baseline(
+            step_1d_sigma_days=1 / 12,
+            step_1d_adaptive_sigma=False,
+            step_1d_max_sigma_multiplier=6,
+            step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
+            step_1c_checkpoint_path=step_1c_checkpoint_path(
+                component=component,
+                min_window_days=estimator.step_1c_min_window_days,
+            ),
+            reuse_step_1c_checkpoint=REUSE_STEP_1C_CHECKPOINT,
+            write_step_1c_checkpoint=WRITE_STEP_1C_CHECKPOINT,
+        )
+
+        if component == "E":
+            be_e = estimator
+        elif component == "N":
+            be_n = estimator
+        else:
+            be_u = estimator
 
     for filename, subdir_name, view_slice, chunk_days, finite_values, figure_builder in (
         ("SM_step_1a.png", "SM_step_1a", short_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1a_figure),
