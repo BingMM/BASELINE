@@ -433,7 +433,7 @@ class BaselineEstimator:
         t_nodes = self.QD_step_2a.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_2a.values
         w_nodes = self.QD_step_2a_w.values
-        y_smooth, _ = weighted_gaussian_smooth(
+        y_smooth = weighted_gaussian_smooth(
             t_nodes, y_nodes, w_nodes, sigma_days=sigma_days
         )
     
