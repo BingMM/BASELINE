@@ -119,11 +119,11 @@ def chunk_filename(prefix, start_time, stop_time):
     return f"{prefix}_{start_time:%Y%m%d}_{inclusive_stop:%Y%m%d}.png"
 
 
-def step_1c_checkpoint_path(component, typical_value_method, min_window_days):
+def step_1c_checkpoint_path(component, min_window_days):
     """Return a stable checkpoint filename for one component configuration."""
     filename = (
         f"DMH_2024_{component}_"
-        f"{typical_value_method}_"
+        "paper_mode_"
         f"w{int(min_window_days)}_step1c.pkl"
     )
     return STEP_1C_CHECKPOINT_DIR / filename
@@ -602,13 +602,11 @@ if __name__ == "__main__":
 
     be_e = BaselineEstimator(t, be, ve.df["uE"].values, mlat, component="E", 
                              step_1c_min_window_days=5,
-                             typical_value_method='paper_mode',
                              step_1c_plot_diagnostics=True,
                              step_1c_diagnostic_time_range=(d_start, detail_stop),
                              step_1c_plot_dir="figures/QD_diag")
     be_e_step_1c_checkpoint = step_1c_checkpoint_path(
         component="E",
-        typical_value_method=be_e.typical_value_method,
         min_window_days=be_e.step_1c_min_window_days,
     )
     be_e.get_baseline(step_1d_sigma_days=1/12,
@@ -621,13 +619,11 @@ if __name__ == "__main__":
 
     be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N", 
                              step_1c_min_window_days=5,
-                             typical_value_method='paper_mode',
                              step_1c_plot_diagnostics=True,
                              step_1c_diagnostic_time_range=(d_start, detail_stop),
                              step_1c_plot_dir="figures/QD_diag")
     be_n_step_1c_checkpoint = step_1c_checkpoint_path(
         component="N",
-        typical_value_method=be_n.typical_value_method,
         min_window_days=be_n.step_1c_min_window_days,
     )
     be_n.get_baseline(step_1d_sigma_days=1/12,
@@ -640,13 +636,11 @@ if __name__ == "__main__":
     
     be_u = BaselineEstimator(t, bu, ve.df["uZ"].values, mlat, component="Z", 
                              step_1c_min_window_days=5,
-                             typical_value_method='paper_mode',
                              step_1c_plot_diagnostics=True,
                              step_1c_diagnostic_time_range=(d_start, detail_stop),
                              step_1c_plot_dir="figures/QD_diag")
     be_u_step_1c_checkpoint = step_1c_checkpoint_path(
         component="Z",
-        typical_value_method=be_u.typical_value_method,
         min_window_days=be_u.step_1c_min_window_days,
     )
     be_u.get_baseline(step_1d_sigma_days=1/12,

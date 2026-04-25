@@ -1,6 +1,5 @@
 ## TODO
 
-- Decide whether to keep the current IRLS-based `get_typical_value()` or replace it with a more explicit density-mode estimator such as a histogram- or KDE-based approach.
 - Revisit the weighting formulas in baseline step 1c and step 2a. They are still informed guesses, not direct instructions from the paper.
 - Step 1c / 1d detail: the paper says the semi-hourly weights should reflect both the spread of each local fit and the width of the window needed to obtain an acceptable solution. The current code uses `1 / (sigma**2 * window_days / 3)`, which is reasonable as a heuristic, but it should be checked against alternatives such as separating the spread term and the window-width penalty or using a milder penalty for wider windows.
 - Step 2a / 2b detail: the paper says the yearly-trend smoothing should be weighted by uncertainty defined from two parts, the instantaneous variance and the delayed variance history. The current code compresses that into a daily scalar using `1 / (u * window_days / 17)`. This should be revisited to decide whether the daily weight should use the mean, median, minimum, or another summary of `u` over the window, and how strongly the expanded window length should reduce the weight.

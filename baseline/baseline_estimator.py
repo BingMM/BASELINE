@@ -23,7 +23,7 @@ class BaselineEstimator:
         step_2b_a=-0.5,
         step_2b_sigma_days=30.0,
         step_1c_min_window_days=3,
-        typical_value_method="irls",
+        typical_value_method="paper_mode",
         typical_value_histogram_bins="fd",
         step_1c_plot_diagnostics=False,
         step_1c_diagnostic_time_range=None,
@@ -42,11 +42,9 @@ class BaselineEstimator:
             step_1c_min_window_days,
             name="step_1c_min_window_days",
         )
-        if typical_value_method not in {"irls", "mode", "paper_mode"}:
-            raise ValueError(
-                "typical_value_method must be one of 'irls', 'mode', or 'paper_mode'"
-        )
-        self.typical_value_method = typical_value_method
+        if typical_value_method != "paper_mode":
+            raise ValueError("typical_value_method must be 'paper_mode'")
+        self.typical_value_method = "paper_mode"
         self.typical_value_histogram_bins = typical_value_histogram_bins
         self.step_1c_plot_diagnostics = bool(step_1c_plot_diagnostics)
         self.step_1c_diagnostic_time_range = _normalize_time_range(
@@ -700,22 +698,17 @@ class BaselineEstimator:
 
 def get_typical_value(
     vals,
-    method="irls",
+    method="paper_mode",
     histogram_bins="fd",
     max_iter=5,
     tol=1e-3,
     return_diagnostics=False,
 ):
-    """Estimate a typical value and spread using a selectable strategy."""
-    if method == "irls":
-        mu, sigma = _get_typical_value_irls(vals, max_iter=max_iter, tol=tol)
-        diagnostics = None
-    elif method == "mode":
-        mu, sigma, diagnostics = _get_typical_value_mode(vals, histogram_bins=histogram_bins)
-    elif method == "paper_mode":
-        mu, sigma, diagnostics = _get_typical_value_paper_mode(vals)
-    else:
-        raise ValueError("method must be one of 'irls', 'mode', or 'paper_mode'")
+    """Estimate the paper-style typical value and spread."""
+    if method != "paper_mode":
+        raise ValueError("method must be 'paper_mode'")
+
+    mu, sigma, diagnostics = _get_typical_value_paper_mode(vals)
 
     if return_diagnostics:
         return mu, sigma, diagnostics
@@ -749,147 +742,6 @@ def get_weight_sigma(vals, typical_value, sigma_fit, central_fraction=68.0):
     if not sigma_candidates:
         return np.nan
     return max(sigma_candidates)
-
-
-def _get_typical_value_irls(vals, max_iter=5, tol=1e-3):
-    """
-    Estimate a robust central value and spread using IRLS Gaussian weights.
-
-    This is a pragmatic replacement for the paper's histogram mode logic in
-    equations 4 and 5. It tracks the densest part of a skewed distribution
-    without being as sensitive to long tails as a simple mean.
-    """
-
-    vals = np.asarray(vals)
-    vals = vals[np.isfinite(vals)]
-
-    if vals.size < 5:
-        return np.nan, np.nan
-
-    # Initial guess (robust)
-    mu = np.median(vals)
-    mad = np.median(np.abs(vals - mu))
-    sigma = 1.4826 * mad if mad > 0 else np.std(vals)
-
-    if sigma == 0 or not np.isfinite(sigma):
-        return mu, 0.0
-
-    for _ in range(max_iter):
-        diff = vals - mu
-        w = np.exp(-0.5 * (diff / sigma)**2)
-
-        mu_new = np.sum(w * vals) / np.sum(w)
-        sigma_new = np.sqrt(np.sum(w * (vals - mu_new)**2) / np.sum(w))
-
-        if np.abs(mu_new - mu) < tol:
-            mu, sigma = mu_new, sigma_new
-            break
-
-        mu, sigma = mu_new, sigma_new
-
-    return mu, sigma
-
-
-def _get_typical_value_mode(vals, histogram_bins="fd"):
-    """
-    Estimate the typical value from a histogram mode plus a Gaussian fit.
-
-    This follows the paper's stated workflow more closely than the IRLS
-    approximation: derive a binned probability distribution, determine the
-    mode, and fit a Gaussian whose width is later used in the acceptance test.
-    """
-
-    vals = np.asarray(vals, dtype=float)
-    vals = vals[np.isfinite(vals)]
-
-    if vals.size < 5:
-        return np.nan, np.nan, None
-
-    if np.all(vals == vals[0]):
-        return vals[0], 0.0, None
-
-    try:
-        edges = np.histogram_bin_edges(vals, bins=histogram_bins)
-    except ValueError:
-        edges = np.histogram_bin_edges(vals, bins="auto")
-
-    if edges.size < 2 or np.any(~np.isfinite(edges)) or np.allclose(edges[0], edges[-1]):
-        sigma = np.std(vals)
-        return np.median(vals), sigma if np.isfinite(sigma) else np.nan, None
-
-    min_bins = min(64, max(16, int(np.sqrt(vals.size))))
-    num_bins = edges.size - 1
-    if num_bins < min_bins:
-        edges = np.histogram_bin_edges(vals, bins=min_bins)
-
-    counts, edges = np.histogram(vals, bins=edges)
-    counts = counts.astype(float)
-    centers = 0.5 * (edges[:-1] + edges[1:])
-
-    if counts.size == 0 or np.max(counts) <= 0:
-        return np.nan, np.nan, None
-    modal_bins = np.flatnonzero(counts == np.max(counts))
-    mode_value = np.mean(centers[modal_bins])
-
-    sigma0 = 1.4826 * np.median(np.abs(vals - np.median(vals)))
-    if not np.isfinite(sigma0) or sigma0 <= 0:
-        sigma0 = np.std(vals)
-    if not np.isfinite(sigma0) or sigma0 <= 0:
-        return mode_value, 0.0, None
-
-    amp0 = float(np.max(counts))
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", OptimizeWarning)
-            params, _ = curve_fit(
-                _gaussian_pdf_shape,
-                centers,
-                counts,
-                p0=(amp0, mode_value, sigma0),
-                bounds=([0.0, np.min(vals), 1e-12], [np.inf, np.max(vals), np.inf]),
-                maxfev=10000,
-            )
-            amplitude, mu_fit, sigma_fit = params
-            sigma_fit = abs(float(sigma_fit))
-            fit_success = True
-    except (RuntimeError, ValueError):
-        amplitude = np.nan
-        mu_fit = np.nan
-        sigma_fit = np.nan
-        fit_success = False
-
-    if not np.isfinite(sigma_fit):
-        sigma_fit = np.std(vals)
-    if not np.isfinite(sigma_fit):
-        return mode_value, np.nan, None
-
-    left = max(modal_bins[0] - 1, 0)
-    right = min(modal_bins[-1] + 1, counts.size - 1)
-    local_mean = np.mean(counts[left:right + 1].astype(float))
-
-    # Paper eq. (4): replace an isolated modal spike with the Gaussian center.
-    if np.isfinite(amplitude) and amplitude > local_mean and np.isfinite(mu_fit):
-        typical_value = mu_fit
-    else:
-        typical_value = mode_value
-
-    diagnostics = {
-        "centers": centers,
-        "counts": counts,
-        "widths": np.diff(edges),
-        "mode_value": mode_value,
-        "typical_value": typical_value,
-        "fit_success": fit_success,
-        "amplitude": float(amplitude) if np.isfinite(amplitude) else np.nan,
-        "mu_fit": float(mu_fit) if np.isfinite(mu_fit) else np.nan,
-        "sigma_fit": float(sigma_fit) if np.isfinite(sigma_fit) else np.nan,
-    }
-    if fit_success:
-        x_fit = np.linspace(edges[0], edges[-1], 512)
-        diagnostics["x_fit"] = x_fit
-        diagnostics["y_fit"] = _gaussian_pdf_shape(x_fit, amplitude, mu_fit, sigma_fit)
-
-    return typical_value, sigma_fit, diagnostics
 
 
 def _get_typical_value_paper_mode(
