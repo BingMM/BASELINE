@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from scipy.signal import fftconvolve
 
 class VarianceEstimator:
@@ -42,34 +41,6 @@ class VarianceEstimator:
     
         self.df["v"] = v
 
-    def get_v_old(self):
-        """Reference implementation of equation 11 using explicit window loops."""
-        self.df["datetime"] = pd.to_datetime(self.df["datetime"])
-        
-        t = self.df["datetime"].values.astype("datetime64[s]").astype(float)
-        N = self.df["N"].values
-        E = self.df["E"].values
-        Z = self.df["Z"].values
-    
-        v = np.full_like(N, np.nan, dtype=float)
-        window_seconds = 24 * 3600  # 24 hours
-    
-        for i in tqdm(range(len(t)), desc="Computing v"):
-            # indices of points within last 24 hours
-            mask = (t >= t[i] - window_seconds) & (t <= t[i])
-            if np.sum(mask) < 2:
-                continue
-            ss_n, count_n = sum_of_squares_ignore_nan(N[mask])
-            ss_e, count_e = sum_of_squares_ignore_nan(E[mask])
-            ss_z, count_z = sum_of_squares_ignore_nan(Z[mask])
-            total_ss = ss_n + ss_e + ss_z
-            total_count = count_n + count_e + count_z
-
-            if total_count > 0:
-                v[i] = total_ss / total_count
-    
-        self.df["v"] = v
-        
     def get_f(self):
         """Compute the latitude scaling used in the delayed memory term."""
         self.df['fN'] = np.abs(np.cos(self.df['mlat']/180*np.pi))
@@ -146,17 +117,3 @@ def rolling_window_sum(x, window_size):
     i = np.arange(len(x))
     i0 = np.maximum(0, i - window_size)
     return csum[i + 1] - csum[i0]
-
-
-def sum_of_squares_ignore_nan(x):
-    """Return sum of squared deviations and the number of finite samples."""
-    x = np.asarray(x, dtype=float)
-    valid = np.isfinite(x)
-    count = np.sum(valid)
-
-    if count == 0:
-        return 0.0, 0
-
-    finite_x = x[valid]
-    ss = np.sum((finite_x - np.mean(finite_x)) ** 2)
-    return ss, count

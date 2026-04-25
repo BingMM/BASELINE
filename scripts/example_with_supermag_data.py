@@ -22,7 +22,6 @@ SM_PATH = DATA_DIR / "DMH_SM_1min_2024.netcdf"
 GLAT = 76.77
 GLON = 341.37
 MINUTES_PER_DAY = 24 * 60
-HALF_HOURS_PER_DAY = 48
 STEP_1_CONTEXT_CHUNK_DAYS = 7
 STEP_1_DETAIL_CHUNK_DAYS = 2
 STEP_2_CHUNK_DAYS = 60
@@ -438,17 +437,6 @@ def save_chunked_step_2c(estimator, t, chunk_days):
         axs[1].set_xlabel("Time")
         axs[1].set_ylabel("Magnetic field [nT]")
         save_example_figure(fig, "SM_step_2c", chunk_filename("SM_step_2c", start_time, stop_time))
-
-
-def save_chunked_qd_component_comparison(t, input_values, supermag_qd, estimator, subdir_name, prefix, chunk_days, error_plot):
-    """Write one component-comparison plot per chunk using the existing QD helper."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(input_values, view_slice):
-            continue
-        fig, ax = plt.subplots(1, 1, figsize=(15, 5))
-        plot_qd_component(ax, t, input_values, supermag_qd, estimator, view_slice, estimator.component, error_plot=error_plot)
-        ax.legend(loc="best")
-        save_example_figure(fig, subdir_name, chunk_filename(prefix, start_time, stop_time))
 
 
 def save_chunked_qd_comp_triplet(t, component_specs, chunk_days, error_plot):

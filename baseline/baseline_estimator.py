@@ -23,8 +23,6 @@ class BaselineEstimator:
         step_2b_a=-0.5,
         step_2b_sigma_days=30.0,
         step_1c_min_window_days=3,
-        typical_value_method="paper_mode",
-        typical_value_histogram_bins="fd",
         step_1c_plot_diagnostics=False,
         step_1c_diagnostic_time_range=None,
         step_1c_plot_dir="figures/QD_diag",
@@ -42,10 +40,6 @@ class BaselineEstimator:
             step_1c_min_window_days,
             name="step_1c_min_window_days",
         )
-        if typical_value_method != "paper_mode":
-            raise ValueError("typical_value_method must be 'paper_mode'")
-        self.typical_value_method = "paper_mode"
-        self.typical_value_histogram_bins = typical_value_histogram_bins
         self.step_1c_plot_diagnostics = bool(step_1c_plot_diagnostics)
         self.step_1c_diagnostic_time_range = _normalize_time_range(
             step_1c_diagnostic_time_range
@@ -82,7 +76,6 @@ class BaselineEstimator:
             step_2b_a=step_2b_a,
             step_2b_sigma_days=step_2b_sigma_days,
         )
-        self.get_QO()
 
     def get_FWHM_stat(self):
         """Evaluate the latitude-dependent FWHM threshold from equation 10."""
@@ -237,8 +230,7 @@ class BaselineEstimator:
                         window_days += 2
                         continue
                     
-                    fwhm = 2.355 * sigma
-                    last_fwhm = fwhm
+                    last_fwhm = 2.355 * sigma
 
                     # Eq. 8 compares Gaussian sigma directly to the empirical
                     # FWHM_stat curve. Despite the name, do not convert sigma
@@ -410,7 +402,6 @@ class BaselineEstimator:
             window_days = min(17, max_window_days)
             value = np.nan
             u = np.nan
-            fallback = None
             target_mask = self.df["day"] == day
             target_n_samples = int(np.isfinite(self.df.loc[target_mask, "x_QD"]).sum())
 
@@ -437,8 +428,6 @@ class BaselineEstimator:
                 u = np.mean(self.df.loc[mask, 'u'].dropna().values)    
     
                 mu, sigma = self._estimate_typical_value(vals)
-                fallback = (mu, u, window_days)
-                fwhm = 2.355 * sigma
     
                 # Eq. 8 compares Gaussian sigma directly to the empirical
                 # FWHM_stat curve. Despite the name, do not convert sigma
@@ -481,10 +470,6 @@ class BaselineEstimator:
     def step_2c(self):
         """Step 2c: subtract the yearly trend from the daily-corrected series."""
         self.df['x_QD_QY'] = self.df['x_QD'] - self.df['QY']
-
-    def get_QO(self):
-        """Placeholder for the quiet-day residual offset term."""
-        1+1
 
     def save_step_1c_checkpoint(self, path):
         """Persist Step 1c outputs so later runs can resume from Step 1d."""
@@ -536,13 +521,8 @@ class BaselineEstimator:
         self.QD_step_1c_diagnostics = payload["QD_step_1c_diagnostics"].copy()
 
     def _estimate_typical_value(self, vals, return_diagnostics=False):
-        """Evaluate the configured typical-value estimator."""
-        return get_typical_value(
-            vals,
-            method=self.typical_value_method,
-            histogram_bins=self.typical_value_histogram_bins,
-            return_diagnostics=return_diagnostics,
-        )
+        """Evaluate the paper-style typical-value estimator."""
+        return get_typical_value(vals, return_diagnostics=return_diagnostics)
 
     def _should_plot_step_1c_diagnostic(self, timestamp):
         """Return whether Step 1c should write a diagnostic plot for this node."""
@@ -657,18 +637,16 @@ class BaselineEstimator:
 
         if ax_days is not None:
             day_offsets = diagnostics.get("per_day_offsets")
-            day_labels = diagnostics.get("per_day_labels")
             day_centers = diagnostics.get("per_day_day_centers")
             x_edges = diagnostics.get("edges")
             if (
                 isinstance(day_offsets, np.ndarray)
-                and isinstance(day_labels, (list, tuple))
                 and isinstance(day_centers, np.ndarray)
                 and isinstance(x_edges, np.ndarray)
                 and day_offsets.size > 0
             ):
                 y_edges = _centers_to_edges(day_centers)
-                mesh = ax_days.pcolormesh(
+                ax_days.pcolormesh(
                     x_edges,
                     y_edges,
                     per_day_counts,
@@ -698,16 +676,9 @@ class BaselineEstimator:
 
 def get_typical_value(
     vals,
-    method="paper_mode",
-    histogram_bins="fd",
-    max_iter=5,
-    tol=1e-3,
     return_diagnostics=False,
 ):
     """Estimate the paper-style typical value and spread."""
-    if method != "paper_mode":
-        raise ValueError("method must be 'paper_mode'")
-
     mu, sigma, diagnostics = _get_typical_value_paper_mode(vals)
 
     if return_diagnostics:
@@ -938,7 +909,6 @@ def _add_step_1c_per_day_diagnostics(diagnostics, window_df, target_day):
         return
 
     diagnostics["per_day_offsets"] = np.asarray([item[0] for item in grouped], dtype=int)
-    diagnostics["per_day_labels"] = [item[1] for item in grouped]
     diagnostics["per_day_counts"] = np.vstack([item[2] for item in grouped])
     diagnostics["per_day_day_centers"] = np.asarray(
         [float(item[0]) for item in grouped],
