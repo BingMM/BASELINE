@@ -17,23 +17,17 @@ from supermag_example_plotting import (
     build_step_2a_figure,
     build_step_2b_figure,
     build_step_2c_figure,
-    date_slice,
-    day_slice,
     save_chunked_component_comparison,
     save_chunked_component_triplet,
     save_chunked_qd_comp_triplet,
-    save_step_summary_and_chunks,
-    save_summary_component_comparison,
-    save_summary_component_triplet,
-    save_summary_qd_triplet,
+    save_step_chunks,
 )
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 FIGURE_DIR = BASE_DIR / "figures"
 EXAMPLE_FIGURE_DIR = FIGURE_DIR / "SM_example"
-FIGURE_DIR.mkdir(exist_ok=True)
-EXAMPLE_FIGURE_DIR.mkdir(exist_ok=True)
+EXAMPLE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 
 SM_PATH_no_BS = DATA_DIR / "DMH_SM_1min_2024_no_BS.netcdf"
 SM_PATH_no_QD = DATA_DIR / "DMH_SM_1min_2024_no_QD.netcdf"
@@ -47,7 +41,7 @@ STEP_2_CHUNK_DAYS = 60
 STEP_2B_SIGMA_DAYS = 15.0
 STEP_1C_CHECKPOINT_DIR = DATA_DIR / "cache" / "step_1c"
 REUSE_STEP_1C_CHECKPOINT = False
-WRITE_STEP_1C_CHECKPOINT = False
+WRITE_STEP_1C_CHECKPOINT = True
 COMPONENT_TITLES = ("Be", "Bn", "Bu")
 COMPONENT_CONFIGS = (
     ("E", "uE"),
@@ -119,30 +113,19 @@ if __name__ == "__main__":
     d_start = pd.Timestamp("2024-03-06")
     error_plot = True
     n_points = len(t)
-    short_slice = day_slice(0, min(7, max(1, n_points // MINUTES_PER_DAY)), n_points)
     detail_days = 2 if n_points >= 2 * MINUTES_PER_DAY else max(1, n_points // MINUTES_PER_DAY)
-    detail_slice = date_slice(t, d_start, detail_days)
     detail_stop = d_start + pd.Timedelta(days=detail_days)
-    long_slice = day_slice(0, min(180, max(1, n_points // MINUTES_PER_DAY)), n_points)
     raw_components = (be, bn, bu)
     db_components = (dbe, dbn, dbu)
     qd_components = (be_QD, bn_QD, bu_QD)
     qy_components = (be_QY, bn_QY, bu_QY)
 
-    for filename, subdir_name, components, chunk_days in (
-        ("SM.png", "SM", raw_components, STEP_1_CONTEXT_CHUNK_DAYS),
-        ("SM_db.png", "SM_db", db_components, STEP_1_CONTEXT_CHUNK_DAYS),
-        ("SM_QD.png", "SM_QD", qd_components, STEP_1_DETAIL_CHUNK_DAYS),
-        ("SM_QY.png", "SM_QY", qy_components, STEP_2_CHUNK_DAYS),
+    for subdir_name, components, chunk_days in (
+        ("SM", raw_components, STEP_1_CONTEXT_CHUNK_DAYS),
+        ("SM_db", db_components, STEP_1_CONTEXT_CHUNK_DAYS),
+        ("SM_QD", qd_components, STEP_1_DETAIL_CHUNK_DAYS),
+        ("SM_QY", qy_components, STEP_2_CHUNK_DAYS),
     ):
-        save_summary_component_triplet(
-            FIGURE_DIR,
-            filename,
-            t,
-            components,
-            COMPONENT_TITLES,
-            detail_slice,
-        )
         save_chunked_component_triplet(
             EXAMPLE_FIGURE_DIR,
             t,
@@ -178,7 +161,7 @@ if __name__ == "__main__":
             step_1c_min_window_days=5,
             step_1c_plot_diagnostics=True,
             step_1c_diagnostic_time_range=(d_start, detail_stop),
-            step_1c_plot_dir="figures/QD_diag",
+            step_1c_plot_dir="figures/SM_example/QD_diag",
         )
         estimator.get_baseline(
             step_1d_sigma_days=1 / 12,
@@ -198,25 +181,22 @@ if __name__ == "__main__":
         else:
             be_u = estimator
 
-    for filename, subdir_name, view_slice, chunk_days, finite_values, figure_builder in (
-        ("SM_step_1a.png", "SM_step_1a", short_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1a_figure),
-        ("SM_step_1b.png", "SM_step_1b", short_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1b_figure),
-        ("SM_step_1c.png", "SM_step_1c", detail_slice, STEP_1_DETAIL_CHUNK_DAYS, be_n.df["x"].values, build_step_1c_figure),
-        ("SM_step_1d.png", "SM_step_1d", detail_slice, STEP_1_DETAIL_CHUNK_DAYS, be_n.df["x"].values, build_step_1d_figure),
-        ("SM_step_1e.png", "SM_step_1e", detail_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1e_figure),
-        ("SM_step_2a.png", "SM_step_2a", long_slice, STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2a_figure),
-        ("SM_step_2b.png", "SM_step_2b", long_slice, STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2b_figure),
-        ("SM_step_2c.png", "SM_step_2c", long_slice, STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2c_figure),
+    for subdir_name, chunk_days, finite_values, figure_builder in (
+        ("SM_step_1a", STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1a_figure),
+        ("SM_step_1b", STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1b_figure),
+        ("SM_step_1c", STEP_1_DETAIL_CHUNK_DAYS, be_n.df["x"].values, build_step_1c_figure),
+        ("SM_step_1d", STEP_1_DETAIL_CHUNK_DAYS, be_n.df["x"].values, build_step_1d_figure),
+        ("SM_step_1e", STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1e_figure),
+        ("SM_step_2a", STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2a_figure),
+        ("SM_step_2b", STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2b_figure),
+        ("SM_step_2c", STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2c_figure),
     ):
-        save_step_summary_and_chunks(
-            FIGURE_DIR,
+        save_step_chunks(
             EXAMPLE_FIGURE_DIR,
             be_n,
             t,
-            view_slice,
             chunk_days,
             finite_values,
-            filename,
             subdir_name,
             figure_builder,
         )
@@ -225,14 +205,6 @@ if __name__ == "__main__":
         (dbe, be_e.df["x_QD_QY"]),
         (dbn, be_n.df["x_QD_QY"]),
         (dbu, be_u.df["x_QD_QY"]),
-    )
-    save_summary_component_comparison(
-        FIGURE_DIR,
-        "SM_db_comp.png",
-        t,
-        db_component_pairs,
-        COMPONENT_TITLES,
-        detail_slice,
     )
     save_chunked_component_comparison(
         EXAMPLE_FIGURE_DIR,
@@ -244,18 +216,6 @@ if __name__ == "__main__":
         STEP_1_DETAIL_CHUNK_DAYS,
     )
 
-    save_summary_qd_triplet(
-        FIGURE_DIR,
-        "SM_QD_comp.png",
-        t,
-        (
-            (be, be_QD, be_e, "Be"),
-            (bn, bn_QD, be_n, "Bn"),
-            (bu, bu_QD, be_u, "Bu"),
-        ),
-        detail_slice,
-        error_plot,
-    )
     save_chunked_qd_comp_triplet(
         EXAMPLE_FIGURE_DIR,
         t,
@@ -272,14 +232,6 @@ if __name__ == "__main__":
         (be_QY, be_e.df["QY"]),
         (bn_QY, be_n.df["QY"]),
         (bu_QY, be_u.df["QY"]),
-    )
-    save_summary_component_comparison(
-        FIGURE_DIR,
-        "SM_QY_comp.png",
-        t,
-        qy_component_pairs,
-        COMPONENT_TITLES,
-        detail_slice,
     )
     save_chunked_component_comparison(
         EXAMPLE_FIGURE_DIR,

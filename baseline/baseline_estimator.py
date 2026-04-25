@@ -250,7 +250,11 @@ class BaselineEstimator:
                     status_value,
                 )
                 results.append((timestamp, value))
-                denom = last_sigma_weight**2 * window_days / 3
+                denom = (
+                    last_sigma_weight**2
+                    * window_days
+                    / self.step_1c_min_window_days
+                )
                 weight_value = 1 / denom if np.isfinite(denom) and denom > 0 else 0.0
                 weight.append((timestamp, weight_value))
                 status.append((timestamp, status_value))

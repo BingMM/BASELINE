@@ -40,12 +40,6 @@ STEP_1C_STATUS_STYLES = {
 }
 
 
-def save_figure(fig, figure_dir, filename):
-    """Save and close a matplotlib figure in the repository figures folder."""
-    fig.savefig(Path(figure_dir) / filename, bbox_inches="tight")
-    plt.close(fig)
-
-
 def save_example_figure(fig, example_figure_dir, subdir_name, filename):
     """Save and close a figure in a named SM_example subdirectory."""
     save_path = Path(example_figure_dir) / subdir_name / filename
@@ -93,14 +87,6 @@ def chunk_filename(prefix, start_time, stop_time):
     """Build a stable filename for a time chunk."""
     inclusive_stop = stop_time - pd.Timedelta(minutes=1)
     return f"{prefix}_{start_time:%Y%m%d}_{inclusive_stop:%Y%m%d}.png"
-
-
-def get_slice_time_range(t, view_slice):
-    """Return inclusive start and exclusive stop timestamps for a time slice."""
-    view_t = pd.to_datetime(t[view_slice])
-    start_time = pd.Timestamp(view_t[0])
-    stop_time = pd.Timestamp(view_t[-1]) + pd.Timedelta(minutes=1)
-    return start_time, stop_time
 
 
 def slice_has_finite(values, view_slice):
@@ -249,29 +235,6 @@ def plot_component_comparison_triplet(axs, t, component_pairs, titles, view_slic
             estimate_view = np.asarray(estimate)[view_slice]
         ax.plot(t[view_slice], estimate_view)
         ax.set_title(title)
-
-
-def save_summary_component_triplet(figure_dir, filename, t, components, titles, view_slice):
-    """Save one summary triplet plot for three component series."""
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    plot_component_triplet(axs, t, components, titles, view_slice)
-    save_figure(fig, figure_dir, filename)
-
-
-def save_summary_component_comparison(figure_dir, filename, t, component_pairs, titles, view_slice):
-    """Save one summary triplet comparison plot."""
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    plot_component_comparison_triplet(axs, t, component_pairs, titles, view_slice)
-    save_figure(fig, figure_dir, filename)
-
-
-def save_summary_qd_triplet(figure_dir, filename, t, component_specs, view_slice, error_plot):
-    """Save one summary QD-comparison triplet plot."""
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    for ax, (input_values, supermag_qd, estimator, title) in zip(axs, component_specs):
-        plot_qd_component(ax, t, input_values, supermag_qd, estimator, view_slice, title, error_plot=error_plot)
-    axs[0].legend(loc="best")
-    save_figure(fig, figure_dir, filename)
 
 
 def save_chunked_component_triplet(
@@ -463,22 +426,16 @@ def build_step_2c_figure(estimator, view_slice, _start_time, _stop_time):
     return fig
 
 
-def save_step_summary_and_chunks(
-    figure_dir,
+def save_step_chunks(
     example_figure_dir,
     estimator,
     t,
-    view_slice,
     chunk_days,
     finite_values,
-    filename,
     subdir_name,
     figure_builder,
 ):
-    """Write one summary estimator plot and the matching full-year chunk set."""
-    start_time, stop_time = get_slice_time_range(t, view_slice)
-    fig = figure_builder(estimator, view_slice, start_time, stop_time)
-    save_figure(fig, figure_dir, filename)
+    """Write the full-year chunk set for one estimator plot family."""
     save_chunked_estimator_plot(
         example_figure_dir,
         estimator,
