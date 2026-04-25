@@ -29,6 +29,12 @@ STEP_2B_SIGMA_DAYS = 15.0
 STEP_1C_CHECKPOINT_DIR = DATA_DIR / "cache" / "step_1c"
 REUSE_STEP_1C_CHECKPOINT = True
 WRITE_STEP_1C_CHECKPOINT = True
+COMPONENT_TITLES = ("Be", "Bn", "Bu")
+COMPONENT_CONFIGS = (
+    ("E", "uE"),
+    ("N", "uN"),
+    ("Z", "uZ"),
+)
 STEP_1C_STATUS_STYLES = {
     "missing_input": {
         "label": "No input in Step 1c bin",
@@ -263,9 +269,7 @@ def save_chunked_component_triplet(t, components, titles, subdir_name, prefix, c
         if not any_series_has_finite(components, view_slice):
             continue
         fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-        for ax, values, title in zip(axs, components, titles):
-            ax.plot(t[view_slice], values[view_slice])
-            ax.set_title(title)
+        plot_component_triplet(axs, t, components, titles, view_slice)
         save_example_figure(fig, subdir_name, chunk_filename(prefix, start_time, stop_time))
 
 
@@ -283,160 +287,25 @@ def save_chunked_component_comparison(
         if not any_series_has_finite(reference_series, view_slice):
             continue
         fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-        for ax, (reference, estimate), title in zip(axs, component_pairs, titles):
-            ax.plot(t[view_slice], reference[view_slice])
-            if isinstance(estimate, pd.Series):
-                estimate_view = estimate.iloc[view_slice].values
-            else:
-                estimate_view = np.asarray(estimate)[view_slice]
-            ax.plot(t[view_slice], estimate_view)
-            ax.set_title(title)
+        plot_component_comparison_triplet(axs, t, component_pairs, titles, view_slice)
         save_example_figure(fig, subdir_name, chunk_filename(prefix, start_time, stop_time))
 
 
-def save_chunked_step_1a(estimator, t, chunk_days):
-    """Write the Step 1a overview in chunks covering the full record."""
+def save_chunked_estimator_plot(
+    estimator,
+    t,
+    chunk_days,
+    finite_values,
+    subdir_name,
+    prefix,
+    figure_builder,
+):
+    """Write one estimator plot per time chunk using a supplied figure builder."""
     for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x"].values, view_slice):
+        if not slice_has_finite(finite_values, view_slice):
             continue
-        fig = plt.figure(figsize=(15, 9))
-        plt.plot(
-            estimator.df["datetime"][view_slice],
-            estimator.df["x"][view_slice],
-            label="Observed magnetic field",
-        )
-        nodes = estimator.QD_step_1a.loc[
-            (estimator.QD_step_1a.index >= start_time) &
-            (estimator.QD_step_1a.index < stop_time)
-        ]
-        plt.plot(nodes.index, nodes.values, ".", label="Daily typical value")
-        plt.xlabel("Time")
-        plt.ylabel("Magnetic field [nT]")
-        plt.legend()
-        save_example_figure(fig, "SM_step_1a", chunk_filename("SM_step_1a", start_time, stop_time))
-
-
-def save_chunked_step_1b(estimator, t, chunk_days):
-    """Write the Step 1b plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x"].values, view_slice):
-            continue
-        fig, axs = plt.subplots(2, 1, figsize=(15, 9), sharex=True)
-        axs[0].plot(estimator.df["datetime"][view_slice], estimator.df["x"][view_slice], label="Observed magnetic field")
-        axs[0].plot(estimator.df["datetime"][view_slice], estimator.df["step_1b"][view_slice], label="Weighted fit to daily typical value")
-        axs[0].legend()
-        axs[0].set_ylabel("Magnetic field [nT]")
-
-        axs[1].plot(estimator.df["datetime"][view_slice], estimator.df["residual_step_1"][view_slice], label="Difference")
-        axs[1].legend()
-        axs[1].set_xlabel("Time")
-        axs[1].set_ylabel("Magnetic field [nT]")
-        save_example_figure(fig, "SM_step_1b", chunk_filename("SM_step_1b", start_time, stop_time))
-
-
-def save_chunked_step_1c(estimator, t, chunk_days):
-    """Write the Step 1c plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x"].values, view_slice):
-            continue
-        half_hour_mask = (
-            (estimator.QD_step_1c.index >= start_time) &
-            (estimator.QD_step_1c.index < stop_time)
-        )
-        fig = plt.figure(figsize=(15, 9))
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["residual_step_1"][view_slice], label="Field minus daily fit")
-        plt.plot(estimator.QD_step_1c.loc[half_hour_mask], ".", label="Semi-hourly typical values")
-        plt.ylabel("Magnetic field [nT]")
-        plt.xlabel("Time")
-        plt.legend()
-        save_example_figure(fig, "SM_step_1c", chunk_filename("SM_step_1c", start_time, stop_time))
-
-
-def save_chunked_step_1d(estimator, t, chunk_days):
-    """Write the Step 1d plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x"].values, view_slice):
-            continue
-        half_hour_mask = (
-            (estimator.QD_step_1c.index >= start_time) &
-            (estimator.QD_step_1c.index < stop_time)
-        )
-        fig = plt.figure(figsize=(15, 9))
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["residual_step_1"][view_slice], label="Field minus daily fit")
-        plt.plot(estimator.QD_step_1c.loc[half_hour_mask], ".", label="Semi-hourly typical values")
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["QD"][view_slice], label="Weighted fit", color="tab:red", linewidth=2)
-        plt.ylabel("Magnetic field [nT]")
-        plt.xlabel("Time")
-        plt.legend()
-        save_example_figure(fig, "SM_step_1d", chunk_filename("SM_step_1d", start_time, stop_time))
-
-
-def save_chunked_step_1e(estimator, t, chunk_days):
-    """Write the Step 1e plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x"].values, view_slice):
-            continue
-        fig = plt.figure(figsize=(15, 9))
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["x"][view_slice], label="Observed signal")
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Without daily variation")
-        plt.legend()
-        plt.xlabel("Time")
-        plt.ylabel("Magnetic field [nT]")
-        save_example_figure(fig, "SM_step_1e", chunk_filename("SM_step_1e", start_time, stop_time))
-
-
-def save_chunked_step_2a(estimator, t, chunk_days):
-    """Write the Step 2a plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x_QD"].values, view_slice):
-            continue
-        fig = plt.figure(figsize=(15, 9))
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Observed signal without daily variation")
-        nodes = estimator.QD_step_2a.loc[
-            (estimator.QD_step_2a.index >= start_time) &
-            (estimator.QD_step_2a.index < stop_time)
-        ]
-        plt.plot(nodes.index, nodes.values, ".", label="Daily typical value")
-        plt.ylabel("Magnetic field [nT]")
-        plt.xlabel("Time")
-        plt.legend()
-        save_example_figure(fig, "SM_step_2a", chunk_filename("SM_step_2a", start_time, stop_time))
-
-
-def save_chunked_step_2b(estimator, t, chunk_days):
-    """Write the Step 2b plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x_QD"].values, view_slice):
-            continue
-        fig = plt.figure(figsize=(15, 9))
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Observed signal without daily variation")
-        nodes = estimator.QD_step_2a.loc[
-            (estimator.QD_step_2a.index >= start_time) &
-            (estimator.QD_step_2a.index < stop_time)
-        ]
-        plt.plot(nodes.index, nodes.values, ".", label="Daily typical value")
-        plt.plot(estimator.df["datetime"][view_slice], estimator.df["QY"][view_slice], label="Weighted fit", color="tab:red", linewidth=2)
-        plt.ylabel("Magnetic field [nT]")
-        plt.xlabel("Time")
-        plt.legend()
-        save_example_figure(fig, "SM_step_2b", chunk_filename("SM_step_2b", start_time, stop_time))
-
-
-def save_chunked_step_2c(estimator, t, chunk_days):
-    """Write the Step 2c plot in chunks covering the full record."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
-        if not slice_has_finite(estimator.df["x_QD"].values, view_slice):
-            continue
-        fig, axs = plt.subplots(2, 1, figsize=(15, 9), sharex=True)
-        axs[0].plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Without daily variation")
-        axs[0].legend()
-        axs[0].set_ylabel("Magnetic field [nT]")
-
-        axs[1].plot(estimator.df["datetime"][view_slice], estimator.df["x_QD_QY"][view_slice], label="Without daily and yearly variation")
-        axs[1].legend()
-        axs[1].set_xlabel("Time")
-        axs[1].set_ylabel("Magnetic field [nT]")
-        save_example_figure(fig, "SM_step_2c", chunk_filename("SM_step_2c", start_time, stop_time))
+        fig = figure_builder(estimator, view_slice, start_time, stop_time)
+        save_example_figure(fig, subdir_name, chunk_filename(prefix, start_time, stop_time))
 
 
 def save_chunked_qd_comp_triplet(t, component_specs, chunk_days, error_plot):
@@ -500,6 +369,211 @@ def compute_mlat(t, glat, glon):
 
     return mlat
 
+
+def get_slice_time_range(t, view_slice):
+    """Return inclusive start and exclusive stop timestamps for a time slice."""
+    view_t = pd.to_datetime(t[view_slice])
+    start_time = pd.Timestamp(view_t[0])
+    stop_time = pd.Timestamp(view_t[-1]) + pd.Timedelta(minutes=1)
+    return start_time, stop_time
+
+
+def plot_component_triplet(axs, t, components, titles, view_slice):
+    """Plot three component series on aligned axes."""
+    for ax, values, title in zip(axs, components, titles):
+        ax.plot(t[view_slice], values[view_slice])
+        ax.set_title(title)
+
+
+def plot_component_comparison_triplet(axs, t, component_pairs, titles, view_slice):
+    """Plot three reference/estimate component comparisons on aligned axes."""
+    for ax, (reference, estimate), title in zip(axs, component_pairs, titles):
+        ax.plot(t[view_slice], reference[view_slice])
+        if isinstance(estimate, pd.Series):
+            estimate_view = estimate.iloc[view_slice].values
+        else:
+            estimate_view = np.asarray(estimate)[view_slice]
+        ax.plot(t[view_slice], estimate_view)
+        ax.set_title(title)
+
+
+def build_step_1a_figure(estimator, view_slice, start_time, stop_time):
+    """Build the Step 1a figure for one time window."""
+    fig = plt.figure(figsize=(15, 9))
+    plt.plot(
+        estimator.df["datetime"][view_slice],
+        estimator.df["x"][view_slice],
+        label="Observed magnetic field",
+    )
+    nodes = estimator.QD_step_1a.loc[
+        (estimator.QD_step_1a.index >= start_time) &
+        (estimator.QD_step_1a.index < stop_time)
+    ]
+    plt.plot(nodes.index, nodes.values, ".", label="Daily typical value")
+    plt.xlabel("Time")
+    plt.ylabel("Magnetic field [nT]")
+    plt.legend()
+    return fig
+
+
+def build_step_1b_figure(estimator, view_slice, _start_time, _stop_time):
+    """Build the Step 1b figure for one time window."""
+    fig, axs = plt.subplots(2, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(estimator.df["datetime"][view_slice], estimator.df["x"][view_slice], label="Observed magnetic field")
+    axs[0].plot(estimator.df["datetime"][view_slice], estimator.df["step_1b"][view_slice], label="Weighted fit to daily typical value")
+    axs[0].legend()
+    axs[0].set_ylabel("Magnetic field [nT]")
+
+    axs[1].plot(estimator.df["datetime"][view_slice], estimator.df["residual_step_1"][view_slice], label="Difference")
+    axs[1].legend()
+    axs[1].set_xlabel("Time")
+    axs[1].set_ylabel("Magnetic field [nT]")
+    return fig
+
+
+def build_step_1c_figure(estimator, view_slice, start_time, stop_time):
+    """Build the Step 1c figure for one time window."""
+    half_hour_mask = (
+        (estimator.QD_step_1c.index >= start_time) &
+        (estimator.QD_step_1c.index < stop_time)
+    )
+    fig = plt.figure(figsize=(15, 9))
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["residual_step_1"][view_slice], label="Field minus daily fit")
+    plt.plot(estimator.QD_step_1c.loc[half_hour_mask], ".", label="Semi-hourly typical values")
+    plt.ylabel("Magnetic field [nT]")
+    plt.xlabel("Time")
+    plt.legend()
+    return fig
+
+
+def build_step_1d_figure(estimator, view_slice, start_time, stop_time):
+    """Build the Step 1d figure for one time window."""
+    half_hour_mask = (
+        (estimator.QD_step_1c.index >= start_time) &
+        (estimator.QD_step_1c.index < stop_time)
+    )
+    fig = plt.figure(figsize=(15, 9))
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["residual_step_1"][view_slice], label="Field minus daily fit")
+    plt.plot(estimator.QD_step_1c.loc[half_hour_mask], ".", label="Semi-hourly typical values")
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["QD"][view_slice], label="Weighted fit", color="tab:red", linewidth=2)
+    plt.ylabel("Magnetic field [nT]")
+    plt.xlabel("Time")
+    plt.legend()
+    return fig
+
+
+def build_step_1e_figure(estimator, view_slice, _start_time, _stop_time):
+    """Build the Step 1e figure for one time window."""
+    fig = plt.figure(figsize=(15, 9))
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["x"][view_slice], label="Observed signal")
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Without daily variation")
+    plt.legend()
+    plt.xlabel("Time")
+    plt.ylabel("Magnetic field [nT]")
+    return fig
+
+
+def build_step_2a_figure(estimator, view_slice, start_time, stop_time):
+    """Build the Step 2a figure for one time window."""
+    fig = plt.figure(figsize=(15, 9))
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Observed signal without daily variation")
+    nodes = estimator.QD_step_2a.loc[
+        (estimator.QD_step_2a.index >= start_time) &
+        (estimator.QD_step_2a.index < stop_time)
+    ]
+    plt.plot(nodes.index, nodes.values, ".", label="Daily typical value")
+    plt.ylabel("Magnetic field [nT]")
+    plt.xlabel("Time")
+    plt.legend()
+    return fig
+
+
+def build_step_2b_figure(estimator, view_slice, start_time, stop_time):
+    """Build the Step 2b figure for one time window."""
+    fig = plt.figure(figsize=(15, 9))
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Observed signal without daily variation")
+    nodes = estimator.QD_step_2a.loc[
+        (estimator.QD_step_2a.index >= start_time) &
+        (estimator.QD_step_2a.index < stop_time)
+    ]
+    plt.plot(nodes.index, nodes.values, ".", label="Daily typical value")
+    plt.plot(estimator.df["datetime"][view_slice], estimator.df["QY"][view_slice], label="Weighted fit", color="tab:red", linewidth=2)
+    plt.ylabel("Magnetic field [nT]")
+    plt.xlabel("Time")
+    plt.legend()
+    return fig
+
+
+def build_step_2c_figure(estimator, view_slice, _start_time, _stop_time):
+    """Build the Step 2c figure for one time window."""
+    fig, axs = plt.subplots(2, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(estimator.df["datetime"][view_slice], estimator.df["x_QD"][view_slice], label="Without daily variation")
+    axs[0].legend()
+    axs[0].set_ylabel("Magnetic field [nT]")
+
+    axs[1].plot(estimator.df["datetime"][view_slice], estimator.df["x_QD_QY"][view_slice], label="Without daily and yearly variation")
+    axs[1].legend()
+    axs[1].set_xlabel("Time")
+    axs[1].set_ylabel("Magnetic field [nT]")
+    return fig
+
+
+def build_baseline_estimators(t, component_values, variance_df, mlat, diagnostic_range):
+    """Run the baseline estimator for each component and return them by component key."""
+    start_time, stop_time = diagnostic_range
+    estimators = {}
+    for component, variance_col in COMPONENT_CONFIGS:
+        estimator = BaselineEstimator(
+            t,
+            component_values[component],
+            variance_df[variance_col].values,
+            mlat,
+            component=component,
+            step_1c_min_window_days=5,
+            step_1c_plot_diagnostics=True,
+            step_1c_diagnostic_time_range=(start_time, stop_time),
+            step_1c_plot_dir="figures/QD_diag",
+        )
+        estimator.get_baseline(
+            step_1d_sigma_days=1 / 12,
+            step_1d_adaptive_sigma=False,
+            step_1d_max_sigma_multiplier=6,
+            step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
+            step_1c_checkpoint_path=step_1c_checkpoint_path(
+                component=component,
+                min_window_days=estimator.step_1c_min_window_days,
+            ),
+            reuse_step_1c_checkpoint=REUSE_STEP_1C_CHECKPOINT,
+            write_step_1c_checkpoint=WRITE_STEP_1C_CHECKPOINT,
+        )
+        estimators[component] = estimator
+    return estimators
+
+
+def save_step_summary_and_chunks(
+    estimator,
+    t,
+    view_slice,
+    chunk_days,
+    finite_values,
+    filename,
+    subdir_name,
+    figure_builder,
+):
+    """Write one summary estimator plot and the matching full-year chunk set."""
+    start_time, stop_time = get_slice_time_range(t, view_slice)
+    fig = figure_builder(estimator, view_slice, start_time, stop_time)
+    save_figure(fig, filename)
+    save_chunked_estimator_plot(
+        estimator,
+        t,
+        chunk_days,
+        finite_values,
+        subdir_name,
+        subdir_name,
+        figure_builder,
+    )
+
 if __name__ == "__main__":
     """Run the real-data example and write diagnostic plots."""
     t, dbe, dbn, dbu, be_QD, bn_QD, bu_QD, be_QY, bn_QY, bu_QY, be, bn, bu = load_real_data(SM_PATH, SM_PATH_no_QD, SM_PATH_no_BS)
@@ -511,239 +585,78 @@ if __name__ == "__main__":
     detail_days = 2 if n_points >= 2 * MINUTES_PER_DAY else max(1, n_points // MINUTES_PER_DAY)
     detail_slice = date_slice(t, d_start, detail_days)
     detail_stop = d_start + pd.Timedelta(days=detail_days)
-    long_days = min(180, max(1, n_points // MINUTES_PER_DAY))
-    long_slice = day_slice(0, long_days, n_points)
-    
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(t[detail_slice], be[detail_slice])
-    axs[1].plot(t[detail_slice], bn[detail_slice])
-    axs[2].plot(t[detail_slice], bu[detail_slice])
-    axs[0].set_title('Be')
-    axs[1].set_title('Bn')
-    axs[2].set_title('Bu')
-    save_figure(fig, "SM.png")
-    
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(t[detail_slice], dbe[detail_slice])
-    axs[1].plot(t[detail_slice], dbn[detail_slice])
-    axs[2].plot(t[detail_slice], dbu[detail_slice])
-    axs[0].set_title('Be')
-    axs[1].set_title('Bn')
-    axs[2].set_title('Bu')
-    save_figure(fig, "SM_db.png")
+    long_slice = day_slice(0, min(180, max(1, n_points // MINUTES_PER_DAY)), n_points)
+    raw_components = (be, bn, bu)
+    db_components = (dbe, dbn, dbu)
+    qd_components = (be_QD, bn_QD, bu_QD)
+    qy_components = (be_QY, bn_QY, bu_QY)
 
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(t[detail_slice], be_QD[detail_slice])
-    axs[1].plot(t[detail_slice], bn_QD[detail_slice])
-    axs[2].plot(t[detail_slice], bu_QD[detail_slice])
-    axs[0].set_title('Be')
-    axs[1].set_title('Bn')
-    axs[2].set_title('Bu')
-    save_figure(fig, "SM_QD.png")
-    
-    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(t[detail_slice], be_QY[detail_slice])
-    axs[1].plot(t[detail_slice], bn_QY[detail_slice])
-    axs[2].plot(t[detail_slice], bu_QY[detail_slice])
-    axs[0].set_title('Be')
-    axs[1].set_title('Bn')
-    axs[2].set_title('Bu')
-    save_figure(fig, "SM_QY.png")
-
-    save_chunked_component_triplet(
-        t,
-        (be, bn, bu),
-        ("Be", "Bn", "Bu"),
-        "SM",
-        "SM",
-        STEP_1_CONTEXT_CHUNK_DAYS,
-    )
-    save_chunked_component_triplet(
-        t,
-        (dbe, dbn, dbu),
-        ("Be", "Bn", "Bu"),
-        "SM_db",
-        "SM_db",
-        STEP_1_CONTEXT_CHUNK_DAYS,
-    )
-    save_chunked_component_triplet(
-        t,
-        (be_QD, bn_QD, bu_QD),
-        ("Be", "Bn", "Bu"),
-        "SM_QD",
-        "SM_QD",
-        STEP_1_DETAIL_CHUNK_DAYS,
-    )
-    save_chunked_component_triplet(
-        t,
-        (be_QY, bn_QY, bu_QY),
-        ("Be", "Bn", "Bu"),
-        "SM_QY",
-        "SM_QY",
-        STEP_2_CHUNK_DAYS,
-    )
+    for filename, subdir_name, components, chunk_days in (
+        ("SM.png", "SM", raw_components, STEP_1_CONTEXT_CHUNK_DAYS),
+        ("SM_db.png", "SM_db", db_components, STEP_1_CONTEXT_CHUNK_DAYS),
+        ("SM_QD.png", "SM_QD", qd_components, STEP_1_DETAIL_CHUNK_DAYS),
+        ("SM_QY.png", "SM_QY", qy_components, STEP_2_CHUNK_DAYS),
+    ):
+        fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+        plot_component_triplet(axs, t, components, COMPONENT_TITLES, detail_slice)
+        save_figure(fig, filename)
+        save_chunked_component_triplet(
+            t,
+            components,
+            COMPONENT_TITLES,
+            subdir_name,
+            subdir_name,
+            chunk_days,
+        )
     
     mlat = compute_mlat(t, GLAT, GLON)
 
     ve = VarianceEstimator(t, bn, be, bu, mlat)
     ve.estimate()
-
-    be_e = BaselineEstimator(t, be, ve.df["uE"].values, mlat, component="E", 
-                             step_1c_min_window_days=5,
-                             step_1c_plot_diagnostics=True,
-                             step_1c_diagnostic_time_range=(d_start, detail_stop),
-                             step_1c_plot_dir="figures/QD_diag")
-    be_e_step_1c_checkpoint = step_1c_checkpoint_path(
-        component="E",
-        min_window_days=be_e.step_1c_min_window_days,
+    estimators = build_baseline_estimators(
+        t,
+        {"E": be, "N": bn, "Z": bu},
+        ve.df,
+        mlat,
+        (d_start, detail_stop),
     )
-    be_e.get_baseline(step_1d_sigma_days=1/12,
-                      step_1d_adaptive_sigma=False,
-                      step_1d_max_sigma_multiplier=6,
-                      step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
-                      step_1c_checkpoint_path=be_e_step_1c_checkpoint,
-                      reuse_step_1c_checkpoint=REUSE_STEP_1C_CHECKPOINT,
-                      write_step_1c_checkpoint=WRITE_STEP_1C_CHECKPOINT)
+    be_e = estimators["E"]
+    be_n = estimators["N"]
+    be_u = estimators["Z"]
 
-    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N", 
-                             step_1c_min_window_days=5,
-                             step_1c_plot_diagnostics=True,
-                             step_1c_diagnostic_time_range=(d_start, detail_stop),
-                             step_1c_plot_dir="figures/QD_diag")
-    be_n_step_1c_checkpoint = step_1c_checkpoint_path(
-        component="N",
-        min_window_days=be_n.step_1c_min_window_days,
+    for filename, subdir_name, view_slice, chunk_days, finite_values, figure_builder in (
+        ("SM_step_1a.png", "SM_step_1a", short_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1a_figure),
+        ("SM_step_1b.png", "SM_step_1b", short_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1b_figure),
+        ("SM_step_1c.png", "SM_step_1c", detail_slice, STEP_1_DETAIL_CHUNK_DAYS, be_n.df["x"].values, build_step_1c_figure),
+        ("SM_step_1d.png", "SM_step_1d", detail_slice, STEP_1_DETAIL_CHUNK_DAYS, be_n.df["x"].values, build_step_1d_figure),
+        ("SM_step_1e.png", "SM_step_1e", detail_slice, STEP_1_CONTEXT_CHUNK_DAYS, be_n.df["x"].values, build_step_1e_figure),
+        ("SM_step_2a.png", "SM_step_2a", long_slice, STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2a_figure),
+        ("SM_step_2b.png", "SM_step_2b", long_slice, STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2b_figure),
+        ("SM_step_2c.png", "SM_step_2c", long_slice, STEP_2_CHUNK_DAYS, be_n.df["x_QD"].values, build_step_2c_figure),
+    ):
+        save_step_summary_and_chunks(
+            be_n,
+            t,
+            view_slice,
+            chunk_days,
+            finite_values,
+            filename,
+            subdir_name,
+            figure_builder,
+        )
+
+    db_component_pairs = (
+        (dbe, be_e.df["x_QD_QY"]),
+        (dbn, be_n.df["x_QD_QY"]),
+        (dbu, be_u.df["x_QD_QY"]),
     )
-    be_n.get_baseline(step_1d_sigma_days=1/12,
-                      step_1d_adaptive_sigma=False,
-                      step_1d_max_sigma_multiplier=6,
-                      step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
-                      step_1c_checkpoint_path=be_n_step_1c_checkpoint,
-                      reuse_step_1c_checkpoint=REUSE_STEP_1C_CHECKPOINT,
-                      write_step_1c_checkpoint=WRITE_STEP_1C_CHECKPOINT)
-    
-    be_u = BaselineEstimator(t, bu, ve.df["uZ"].values, mlat, component="Z", 
-                             step_1c_min_window_days=5,
-                             step_1c_plot_diagnostics=True,
-                             step_1c_diagnostic_time_range=(d_start, detail_stop),
-                             step_1c_plot_dir="figures/QD_diag")
-    be_u_step_1c_checkpoint = step_1c_checkpoint_path(
-        component="Z",
-        min_window_days=be_u.step_1c_min_window_days,
-    )
-    be_u.get_baseline(step_1d_sigma_days=1/12,
-                      step_1d_adaptive_sigma=False,
-                      step_1d_max_sigma_multiplier=6,
-                      step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
-                      step_1c_checkpoint_path=be_u_step_1c_checkpoint,
-                      reuse_step_1c_checkpoint=REUSE_STEP_1C_CHECKPOINT,
-                      write_step_1c_checkpoint=WRITE_STEP_1C_CHECKPOINT)
-
-    detail_half_hour_mask = (
-        (be_n.QD_step_1c.index >= d_start) &
-        (be_n.QD_step_1c.index < detail_stop)
-    )
-
-    fig = plt.figure(figsize=(15, 9))
-    plt.plot(be_n.df["datetime"][short_slice], be_n.df["x"][short_slice], label="Observed magnetic field")
-    plt.plot(be_n.QD_step_1a.iloc[:min(7, len(be_n.QD_step_1a))], ".", label="Daily typical value")
-    plt.xlabel("Time")
-    plt.ylabel("Magnetic field [nT]")
-    plt.legend()
-    save_figure(fig, "SM_step_1a.png")
-    save_chunked_step_1a(be_n, t, STEP_1_CONTEXT_CHUNK_DAYS)
-
-    fig, axs = plt.subplots(2, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(be_n.df["datetime"][short_slice], be_n.df["x"][short_slice], label="Observed magnetic field")
-    axs[0].plot(be_n.df["datetime"][short_slice], be_n.df["step_1b"][short_slice], label="Weighted fit to daily typical value")
-    axs[0].legend()
-    axs[0].set_ylabel("Magnetic field [nT]")
-
-    axs[1].plot(be_n.df["datetime"][short_slice], be_n.df["residual_step_1"][short_slice], label="Difference")
-    axs[1].legend()
-    axs[1].set_xlabel("Time")
-    axs[1].set_ylabel("Magnetic field [nT]")
-    save_figure(fig, "SM_step_1b.png")
-    save_chunked_step_1b(be_n, t, STEP_1_CONTEXT_CHUNK_DAYS)
-
-    fig = plt.figure(figsize=(15, 9))
-    plt.plot(be_n.df["datetime"][detail_slice], be_n.df["residual_step_1"][detail_slice], label="Field minus daily fit")
-    plt.plot(be_n.QD_step_1c.loc[detail_half_hour_mask], ".", label="Semi-hourly typical values")
-    plt.ylabel("Magnetic field [nT]")
-    plt.xlabel("Time")
-    plt.legend()
-    save_figure(fig, "SM_step_1c.png")
-    save_chunked_step_1c(be_n, t, STEP_1_DETAIL_CHUNK_DAYS)
-
-    fig = plt.figure(figsize=(15, 9))
-    plt.plot(be_n.df["datetime"][detail_slice], be_n.df["residual_step_1"][detail_slice], label="Field minus daily fit")
-    plt.plot(be_n.QD_step_1c.loc[detail_half_hour_mask], ".", label="Semi-hourly typical values")
-    plt.plot(be_n.df["datetime"][detail_slice], be_n.df["QD"][detail_slice], label="Weighted fit", color="tab:red", linewidth=2)
-    plt.ylabel("Magnetic field [nT]")
-    plt.xlabel("Time")
-    plt.legend()
-    save_figure(fig, "SM_step_1d.png")
-    save_chunked_step_1d(be_n, t, STEP_1_DETAIL_CHUNK_DAYS)
-
-    fig = plt.figure(figsize=(15, 9))
-    plt.plot(be_n.df["datetime"][detail_slice], be_n.df["x"][detail_slice], label="Observed signal")
-    plt.plot(be_n.df["datetime"][detail_slice], be_n.df["x_QD"][detail_slice], label="Without daily variation")
-    plt.legend()
-    plt.xlabel("Time")
-    plt.ylabel("Magnetic field [nT]")
-    save_figure(fig, "SM_step_1e.png")
-    save_chunked_step_1e(be_n, t, STEP_1_CONTEXT_CHUNK_DAYS)
-
-    fig = plt.figure(figsize=(15, 9))
-    plt.plot(be_n.df["datetime"][long_slice], be_n.df["x_QD"][long_slice], label="Observed signal without daily variation")
-    plt.plot(be_n.QD_step_2a.iloc[:long_days], ".", label="Daily typical value")
-    plt.ylabel("Magnetic field [nT]")
-    plt.xlabel("Time")
-    plt.legend()
-    save_figure(fig, "SM_step_2a.png")
-    save_chunked_step_2a(be_n, t, STEP_2_CHUNK_DAYS)
-
-    fig = plt.figure(figsize=(15, 9))
-    plt.plot(be_n.df["datetime"][long_slice], be_n.df["x_QD"][long_slice], label="Observed signal without daily variation")
-    plt.plot(be_n.QD_step_2a.iloc[:long_days], ".", label="Daily typical value")
-    plt.plot(be_n.df["datetime"][long_slice], be_n.df["QY"][long_slice], label="Weighted fit", color="tab:red", linewidth=2)
-    plt.ylabel("Magnetic field [nT]")
-    plt.xlabel("Time")
-    plt.legend()
-    save_figure(fig, "SM_step_2b.png")
-    save_chunked_step_2b(be_n, t, STEP_2_CHUNK_DAYS)
-
-    fig, axs = plt.subplots(2, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(be_n.df["datetime"][long_slice], be_n.df["x_QD"][long_slice], label="Without daily variation")
-    axs[0].legend()
-    axs[0].set_ylabel("Magnetic field [nT]")
-
-    axs[1].plot(be_n.df["datetime"][long_slice], be_n.df["x_QD_QY"][long_slice], label="Without daily and yearly variation")
-    axs[1].legend()
-    axs[1].set_xlabel("Time")
-    axs[1].set_ylabel("Magnetic field [nT]")
-    save_figure(fig, "SM_step_2c.png")
-    save_chunked_step_2c(be_n, t, STEP_2_CHUNK_DAYS)
-    
     fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(t[detail_slice], dbe[detail_slice])
-    axs[0].plot(t[detail_slice], be_e.df["x_QD_QY"][detail_slice].values)
-    axs[1].plot(t[detail_slice], dbn[detail_slice])
-    axs[1].plot(t[detail_slice], be_n.df["x_QD_QY"][detail_slice].values)
-    axs[2].plot(t[detail_slice], dbu[detail_slice])
-    axs[2].plot(t[detail_slice], be_u.df["x_QD_QY"][detail_slice].values)
-    axs[0].set_title('Be')
-    axs[1].set_title('Bn')
-    axs[2].set_title('Bu')
+    plot_component_comparison_triplet(axs, t, db_component_pairs, COMPONENT_TITLES, detail_slice)
     save_figure(fig, "SM_db_comp.png")
     save_chunked_component_comparison(
         t,
-        (
-            (dbe, be_e.df["x_QD_QY"]),
-            (dbn, be_n.df["x_QD_QY"]),
-            (dbu, be_u.df["x_QD_QY"]),
-        ),
-        ("Be", "Bn", "Bu"),
+        db_component_pairs,
+        COMPONENT_TITLES,
         "SM_db_comp",
         "SM_db_comp",
         STEP_1_DETAIL_CHUNK_DAYS,
@@ -765,26 +678,19 @@ if __name__ == "__main__":
         STEP_1_DETAIL_CHUNK_DAYS,
         error_plot,
     )
-    
+
+    qy_component_pairs = (
+        (be_QY, be_e.df["QY"]),
+        (bn_QY, be_n.df["QY"]),
+        (bu_QY, be_u.df["QY"]),
+    )
     fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
-    axs[0].plot(t[detail_slice], be_QY[detail_slice])
-    axs[0].plot(t[detail_slice], be_e.df["QY"][detail_slice].values)
-    axs[1].plot(t[detail_slice], bn_QY[detail_slice])
-    axs[1].plot(t[detail_slice], be_n.df["QY"][detail_slice].values)
-    axs[2].plot(t[detail_slice], bu_QY[detail_slice])
-    axs[2].plot(t[detail_slice], be_u.df["QY"][detail_slice].values)
-    axs[0].set_title('Be')
-    axs[1].set_title('Bn')
-    axs[2].set_title('Bu')
+    plot_component_comparison_triplet(axs, t, qy_component_pairs, COMPONENT_TITLES, detail_slice)
     save_figure(fig, "SM_QY_comp.png")
     save_chunked_component_comparison(
         t,
-        (
-            (be_QY, be_e.df["QY"]),
-            (bn_QY, be_n.df["QY"]),
-            (bu_QY, be_u.df["QY"]),
-        ),
-        ("Be", "Bn", "Bu"),
+        qy_component_pairs,
+        COMPONENT_TITLES,
         "SM_QY_comp",
         "SM_QY_comp",
         STEP_2_CHUNK_DAYS,
