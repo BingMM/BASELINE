@@ -182,8 +182,6 @@ if __name__ == "__main__":
         )
         estimator.get_baseline(
             step_1d_sigma_days=1 / 12,
-            step_1d_adaptive_sigma=False,
-            step_1d_max_sigma_multiplier=6,
             step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
             step_1c_checkpoint_path=step_1c_checkpoint_path(
                 component=component,

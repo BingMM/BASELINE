@@ -18,8 +18,6 @@ class BaselineEstimator:
         component,
         step_1d_a=-0.5,
         step_1d_sigma_days=1 / (3 * 24),
-        step_1d_adaptive_sigma=True,
-        step_1d_max_sigma_multiplier=6.0,
         step_2b_a=-0.5,
         step_2b_sigma_days=30.0,
         step_1c_min_window_days=3,
@@ -32,8 +30,6 @@ class BaselineEstimator:
         self.component = component
         self.step_1d_a = step_1d_a
         self.step_1d_sigma_days = step_1d_sigma_days
-        self.step_1d_adaptive_sigma = step_1d_adaptive_sigma
-        self.step_1d_max_sigma_multiplier = step_1d_max_sigma_multiplier
         self.step_2b_a = step_2b_a
         self.step_2b_sigma_days = step_2b_sigma_days
         self.step_1c_min_window_days = _validate_odd_window_days(
@@ -53,8 +49,6 @@ class BaselineEstimator:
         self,
         step_1d_a=None,
         step_1d_sigma_days=None,
-        step_1d_adaptive_sigma=None,
-        step_1d_max_sigma_multiplier=None,
         step_2b_a=None,
         step_2b_sigma_days=None,
         step_1c_checkpoint_path=None,
@@ -66,8 +60,6 @@ class BaselineEstimator:
         self.get_QD(
             step_1d_a=step_1d_a,
             step_1d_sigma_days=step_1d_sigma_days,
-            step_1d_adaptive_sigma=step_1d_adaptive_sigma,
-            step_1d_max_sigma_multiplier=step_1d_max_sigma_multiplier,
             step_1c_checkpoint_path=step_1c_checkpoint_path,
             reuse_step_1c_checkpoint=reuse_step_1c_checkpoint,
             write_step_1c_checkpoint=write_step_1c_checkpoint,
@@ -308,31 +300,19 @@ class BaselineEstimator:
         self,
         a=None,
         sigma_days=None,
-        adaptive_sigma=None,
-        max_sigma_multiplier=None,
     ):
         """Step 1d: smooth the semi-hourly estimates and resample to full cadence."""
         a = self.step_1d_a if a is None else a
         sigma_days = self.step_1d_sigma_days if sigma_days is None else sigma_days
-        adaptive_sigma = (
-            self.step_1d_adaptive_sigma if adaptive_sigma is None else adaptive_sigma
-        )
-        max_sigma_multiplier = (
-            self.step_1d_max_sigma_multiplier
-            if max_sigma_multiplier is None
-            else max_sigma_multiplier
-        )
 
         t_nodes = self.QD_step_1c.index.values.astype('datetime64[s]').astype(float)
         y_nodes = self.QD_step_1c.values
         w_nodes = self.QD_step_1c_w.values
-        y_smooth, sig_m = weighted_gaussian_smooth(
+        y_smooth = weighted_gaussian_smooth(
             t_nodes,
             y_nodes,
             w_nodes,
             sigma_days=sigma_days,
-            adaptive_sigma=adaptive_sigma,
-            max_sigma_multiplier=max_sigma_multiplier,
         )
         if hasattr(self, "QD_step_1c_status"):
             status_values = self.QD_step_1c_status.reindex(self.QD_step_1c.index).values
@@ -343,7 +323,6 @@ class BaselineEstimator:
         y_interp = cubic_convolution_interpolate(t_nodes, y_smooth, t_full, a=a)
         y_interp[~np.isfinite(self.df["x"].values)] = np.nan
         self.y_smooth = y_smooth
-        self.sig_m = sig_m
         self.df["QD"] = y_interp
 
     def step_1e(self):
@@ -354,8 +333,6 @@ class BaselineEstimator:
         self,
         step_1d_a=None,
         step_1d_sigma_days=None,
-        step_1d_adaptive_sigma=None,
-        step_1d_max_sigma_multiplier=None,
         step_1c_checkpoint_path=None,
         reuse_step_1c_checkpoint=False,
         write_step_1c_checkpoint=False,
@@ -377,8 +354,6 @@ class BaselineEstimator:
         self.step_1d(
             a=step_1d_a,
             sigma_days=step_1d_sigma_days,
-            adaptive_sigma=step_1d_adaptive_sigma,
-            max_sigma_multiplier=step_1d_max_sigma_multiplier,
         )
         self.step_1e()
 
@@ -1091,32 +1066,14 @@ def weighted_gaussian_smooth(
     y_nodes,
     w_nodes,
     sigma_days,
-    adaptive_sigma=False,
-    max_sigma_multiplier=1.0,
 ):
     """Apply Gaussian temporal smoothing with user-supplied point weights."""
     y_smooth = np.zeros_like(y_nodes)
-    sig_m = np.ones_like(y_nodes)
     base_sigma = sigma_days * 86400.0
-    finite_weights = w_nodes[np.isfinite(w_nodes) & (w_nodes > 0)]
-    global_max_weight = np.max(finite_weights) if finite_weights.size > 0 else np.nan
-
-    sigma_values = np.full_like(y_nodes, base_sigma, dtype=float)
-    if adaptive_sigma and np.isfinite(global_max_weight):
-        finite = np.isfinite(w_nodes) & (w_nodes > 0)
-        relative_weight = np.full_like(w_nodes, np.nan, dtype=float)
-        relative_weight[finite] = w_nodes[finite] / global_max_weight
-
-        sigma_multiplier = np.ones_like(w_nodes, dtype=float)
-        sigma_multiplier[finite] = 1.0 / np.sqrt(relative_weight[finite])
-        sigma_multiplier = np.clip(sigma_multiplier, 1.0, max_sigma_multiplier)
-
-        sigma_values[finite] = base_sigma * sigma_multiplier[finite]
-        sig_m = sigma_multiplier
 
     for i, ti in tqdm(enumerate(t_nodes), total=t_nodes.size, desc='Smoothing'):
         dt = t_nodes - ti
-        temporal_weights = np.exp(-0.5 * (dt / sigma_values)**2)
+        temporal_weights = np.exp(-0.5 * (dt / base_sigma)**2)
         weights = w_nodes * temporal_weights
         mask = np.isfinite(y_nodes) & np.isfinite(weights) & (weights > 0)
 
@@ -1129,7 +1086,7 @@ def weighted_gaussian_smooth(
             else:
                 y_smooth[i] = np.sum(y_nodes[mask] * weights[mask]) / weight_sum
 
-    return y_smooth, sig_m
+    return y_smooth
 
 
 def _get_max_odd_window_size(num_days):
