@@ -32,6 +32,7 @@ EXAMPLE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 SM_PATH_no_BS = DATA_DIR / "DMH_SM_1min_2024_no_BS.netcdf"
 SM_PATH_no_QD = DATA_DIR / "DMH_SM_1min_2024_no_QD.netcdf"
 SM_PATH = DATA_DIR / "DMH_SM_1min_2024.netcdf"
+STEP_1C_PLOT_DIR = "figures/SM_example/QD_diag"
 GLAT = 76.77
 GLON = 341.37
 MINUTES_PER_DAY = 24 * 60
@@ -39,9 +40,12 @@ STEP_1_CONTEXT_CHUNK_DAYS = 7
 STEP_1_DETAIL_CHUNK_DAYS = 2
 STEP_2_CHUNK_DAYS = 60
 STEP_2B_SIGMA_DAYS = 15.0
+STEP_1D_SIGMA_DAYS = 1/12
+STEP_1C_MIN_WINDOW_DAYS = 5
 STEP_1C_CHECKPOINT_DIR = DATA_DIR / "cache" / "step_1c"
 REUSE_STEP_1C_CHECKPOINT = False
 WRITE_STEP_1C_CHECKPOINT = True
+STEP_1C_PLOT_DIAGNOSTICS = True
 COMPONENT_TITLES = ("Be", "Bn", "Bu")
 COMPONENT_CONFIGS = (
     ("E", "uE"),
@@ -158,13 +162,13 @@ if __name__ == "__main__":
             ve.df[variance_col].values,
             mlat,
             component=component,
-            step_1c_min_window_days=5,
-            step_1c_plot_diagnostics=True,
+            step_1c_min_window_days=STEP_1C_MIN_WINDOW_DAYS,
+            step_1c_plot_diagnostics=STEP_1C_PLOT_DIAGNOSTICS,
             step_1c_diagnostic_time_range=(d_start, detail_stop),
-            step_1c_plot_dir="figures/SM_example/QD_diag",
+            step_1c_plot_dir=STEP_1C_PLOT_DIR,
         )
         estimator.get_baseline(
-            step_1d_sigma_days=1 / 12,
+            step_1d_sigma_days=STEP_1D_SIGMA_DAYS,
             step_2b_sigma_days=STEP_2B_SIGMA_DAYS,
             step_1c_checkpoint_path=step_1c_checkpoint_path(
                 component=component,
