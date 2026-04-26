@@ -63,7 +63,16 @@ def step_1c_checkpoint_path(component, min_window_days):
 
 
 def load_real_data(sm_path, sm_path_no_QD, sm_path_no_BS):
-    """Load the DMH CSV file and return timestamps and XYZ components."""
+    """
+    Load three SuperMAG NetCDF variants and derive comparison products.
+
+    Returns:
+
+    - the common timestamp array
+    - the baseline-subtracted comparison series (`dbe/dbn/dbu`)
+    - the SuperMAG `QD` and `QY` components recovered by differencing files
+    - the fully processed SuperMAG `be/bn/bu` series used as local inputs
+    """
     dataset_no_BS = nc.Dataset(sm_path_no_BS, 'r')
     dataset_no_QD = nc.Dataset(sm_path_no_QD, 'r')
     dataset = nc.Dataset(sm_path, 'r')
@@ -72,6 +81,7 @@ def load_real_data(sm_path, sm_path_no_QD, sm_path_no_BS):
     
     be_no_BS =   dataset_no_BS.variables['dbe_geo'][:].filled(np.nan).flatten()
     bn_no_BS =   dataset_no_BS.variables['dbn_geo'][:].filled(np.nan).flatten()
+    # SuperMAG stores the geographic vertical component as positive down.
     bu_no_BS = - dataset_no_BS.variables['dbz_geo'][:].filled(np.nan).flatten()
     
     be_no_QD =   dataset_no_QD.variables['dbe_geo'][:].filled(np.nan).flatten()
@@ -111,7 +121,13 @@ def compute_mlat(t, glat, glon):
     return mlat
 
 if __name__ == "__main__":
-    """Run the real-data example and write diagnostic plots."""
+    """
+    Run the SuperMAG reproduction example and write chunked comparison plots.
+
+    The local estimator is run componentwise on the SuperMAG-provided
+    `be/bn/bu` series and compared back against the SuperMAG `QD` and `QY`
+    products recovered from the companion files.
+    """
     t, dbe, dbn, dbu, be_QD, bn_QD, bu_QD, be_QY, bn_QY, bu_QY, be, bn, bu = load_real_data(SM_PATH, SM_PATH_no_QD, SM_PATH_no_BS)
     
     d_start = pd.Timestamp("2024-03-06")
@@ -148,6 +164,8 @@ if __name__ == "__main__":
     be_n = None
     be_u = None
 
+    # Run one baseline estimator per component using the variance term
+    # produced for that same component.
     for component, variance_col in COMPONENT_CONFIGS:
         if component == "E":
             values = be

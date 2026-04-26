@@ -4,7 +4,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from apexpy import Apex
-from baseline import BaselineEstimator, CoordinateRotator, VarianceEstimator
+from baseline import (
+    BaselineEstimator,
+    CoordinateRotator,
+    InverseCoordinateRotator,
+    VarianceEstimator,
+)
 from tqdm import tqdm
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -33,7 +38,7 @@ def day_slice(start_day, num_days, num_points):
 
 
 def load_real_data(csv_path):
-    """Load the DMH CSV file and return timestamps and XYZ components."""
+    """Load one local CSV file and return timestamps and raw `X/Y/Z` components."""
     data = pd.read_csv(csv_path)
     data["date_UTC"] = pd.to_datetime(data["date_UTC"])
     t = data["date_UTC"].to_numpy()
@@ -55,9 +60,19 @@ def compute_mlat(t, glat, glon):
 
     return mlat
 
+if __name__ == "__main__":
+    """
+    Run the local-CSV example and write diagnostic plots.
 
-def main():
-    """Run the real-data example and write diagnostic plots."""
+    This example demonstrates the full `XYZ -> NEZ -> baseline -> XYZ` path:
+
+    1. rotate the raw `X/Y/Z` data into local magnetic `N/E/Z`
+    2. estimate baselines on `N`, `E`, and `Z`
+    3. rotate the estimated baselines and corrected signals back into `X/Y/Z`
+
+    The detailed Step 1 and Step 2 figures remain focused on the rotated
+    northward component so they are easy to compare with the paper.
+    """
     t, x, y, z = load_real_data(CSV_PATH)
     mlat = compute_mlat(t, GLAT, GLON)
 
@@ -68,8 +83,19 @@ def main():
     ve = VarianceEstimator(t, bn, be, bu, mlat)
     ve.estimate()
 
-    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N", step_1c_min_window_days=5)
-    be_n.get_baseline(step_1d_sigma_days=1/12, step_2b_sigma_days=15.0)
+    # Estimate baselines for all three rotated components before mapping the
+    # result back into the original XYZ frame.
+    be_e = BaselineEstimator(t, be, ve.df["uE"].values, mlat, component="E")
+    be_e.get_baseline()
+
+    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N")
+    be_n.get_baseline()
+
+    be_u = BaselineEstimator(t, bu, ve.df["uZ"].values, mlat, component="Z")
+    be_u.get_baseline()
+
+    inverse_rotator = InverseCoordinateRotator(rotator)
+    xyz_products = inverse_rotator.rotate_baselines(be_e, be_n, be_u)
 
     n_points = len(t)
     short_slice = day_slice(0, min(7, max(1, n_points // MINUTES_PER_DAY)), n_points)
@@ -95,6 +121,27 @@ def main():
     axs[1].set_xlabel("Time")
     axs[1].set_ylabel("Magnetic field [nT]")
     save_figure(fig, "real_rotation.png")
+
+    fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
+    axs[0].plot(t[detail_slice], xyz_products["X"][detail_slice], label="X")
+    axs[0].plot(t[detail_slice], xyz_products["X_corr"][detail_slice], label="X corrected")
+    axs[0].plot(t[detail_slice], xyz_products["baseline_X"][detail_slice], label="X baseline")
+    axs[0].legend()
+    axs[0].set_ylabel("Magnetic field [nT]")
+
+    axs[1].plot(t[detail_slice], xyz_products["Y"][detail_slice], label="Y")
+    axs[1].plot(t[detail_slice], xyz_products["Y_corr"][detail_slice], label="Y corrected")
+    axs[1].plot(t[detail_slice], xyz_products["baseline_Y"][detail_slice], label="Y baseline")
+    axs[1].legend()
+    axs[1].set_ylabel("Magnetic field [nT]")
+
+    axs[2].plot(t[detail_slice], xyz_products["Z"][detail_slice], label="Z")
+    axs[2].plot(t[detail_slice], xyz_products["Z_corr"][detail_slice], label="Z corrected")
+    axs[2].plot(t[detail_slice], xyz_products["baseline_Z"][detail_slice], label="Z baseline")
+    axs[2].legend()
+    axs[2].set_xlabel("Time")
+    axs[2].set_ylabel("Magnetic field [nT]")
+    save_figure(fig, "real_xyz_baseline.png")
 
     fig = plt.figure(figsize=(15, 9))
     plt.plot(be_n.df["datetime"][short_slice], be_n.df["x"][short_slice], label="Observed magnetic field")
@@ -168,7 +215,3 @@ def main():
     axs[1].set_xlabel("Time")
     axs[1].set_ylabel("Magnetic field [nT]")
     save_figure(fig, "real_step_2c.png")
-
-
-if __name__ == "__main__":
-    main()
