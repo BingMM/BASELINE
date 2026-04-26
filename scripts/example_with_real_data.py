@@ -68,8 +68,8 @@ def main():
     ve = VarianceEstimator(t, bn, be, bu, mlat)
     ve.estimate()
 
-    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N")
-    be_n.get_baseline(step_1d_sigma_days=1/72)
+    be_n = BaselineEstimator(t, bn, ve.df["uN"].values, mlat, component="N", step_1c_min_window_days=5)
+    be_n.get_baseline(step_1d_sigma_days=1/12, step_2b_sigma_days=15.0)
 
     n_points = len(t)
     short_slice = day_slice(0, min(7, max(1, n_points // MINUTES_PER_DAY)), n_points)
