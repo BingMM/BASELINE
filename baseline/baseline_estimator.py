@@ -17,7 +17,7 @@ class BaselineEstimator:
         mlat,
         component,
         step_1d_a=-0.5,
-        step_1d_sigma_days=1 / 12,
+        step_1d_sigma_days=1 / 24,
         step_2b_a=-0.5,
         step_2b_sigma_days=15.0,
         step_1c_min_window_days=5,
