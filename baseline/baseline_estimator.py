@@ -7,7 +7,13 @@ from scipy.optimize import OptimizeWarning, curve_fit
 from tqdm import tqdm
 
 class BaselineEstimator:
-    """Estimate the daily and yearly baseline terms for one field component."""
+    """
+    Estimate the daily and yearly baseline terms for one input component.
+
+    The estimator operates on one already-prepared component at a time
+    (typically rotated `N`, `E`, or `Z`) together with the corresponding
+    modified-variance series `u` used for yearly-trend weighting.
+    """
     
     def __init__(
         self,
@@ -17,7 +23,7 @@ class BaselineEstimator:
         mlat,
         component,
         step_1d_a=-0.5,
-        step_1d_sigma_days=1 / 12,
+        step_1d_sigma_days=1 / 24,
         step_2b_a=-0.5,
         step_2b_sigma_days=15.0,
         step_1c_min_window_days=5,
@@ -25,7 +31,12 @@ class BaselineEstimator:
         step_1c_diagnostic_time_range=None,
         step_1c_plot_dir="figures/QD_diag",
     ):
-        """Store the component time series, weights, and tunable smoothing parameters."""
+        """
+        Store one component time series and its tuning parameters.
+
+        Parameters are kept on the instance so the same estimator can be
+        rerun with or without Step 1c checkpoint reuse.
+        """
         self.df = pd.DataFrame({"datetime": t, "x": x, "u": u, "mlat": mlat})
         self.component = component
         self.step_1d_a = step_1d_a
@@ -55,7 +66,13 @@ class BaselineEstimator:
         reuse_step_1c_checkpoint=False,
         write_step_1c_checkpoint=False,
     ):
-        """Run the available baseline-estimation steps in paper order."""
+        """
+        Run the full implemented baseline workflow for this component.
+
+        This evaluates the daily baseline `QD` first and then the yearly
+        baseline `QY`. Step 1c can optionally be restored from or saved to
+        a checkpoint so that later tuning runs can start from Step 1d.
+        """
         self.get_FWHM_stat()
         self.get_QD(
             step_1d_a=step_1d_a,
@@ -103,7 +120,18 @@ class BaselineEstimator:
         self.df["residual_step_1"] = self.df["x"] - self.df["step_1b"]
 
     def step_1c(self):
-        """Step 1c: estimate 48 semi-hourly values per day with an expanding window."""
+        """
+        Estimate 48 semi-hourly typical values per day with an expanding window.
+
+        For each target day and 30-minute bin, the estimator starts from the
+        configured minimum odd window size and widens by 2 days until either:
+
+        - a typical value passes the `sigma <= FWHM_stat` acceptance test, or
+        - the available time span is exhausted.
+
+        Bins with no data on the target day are marked `missing_input` and are
+        skipped immediately instead of being estimated from neighboring days.
+        """
         
         self.df["bin30"] = (
             self.df["datetime"].dt.hour * 2 +
@@ -111,15 +139,25 @@ class BaselineEstimator:
         )
     
         self.df["day"] = self.df["datetime"].dt.floor("D")
-        days = self.df["day"].sort_values().unique()
+        days = pd.DatetimeIndex(self.df["day"].sort_values().unique())
         max_window_days = _get_max_odd_window_size(days.size)
+        (
+            residuals_by_bin,
+            target_counts,
+            fwhm_sums,
+            fwhm_counts,
+        ) = _prepare_step_1c_day_bin_cache(self.df, days)
     
         results = []
         weight = []
         status = []
         diagnostics = []
         
-        for day in tqdm(days, total=days.size, desc='Semi-hournly typical values'):
+        for day_idx, day in tqdm(
+            enumerate(days),
+            total=days.size,
+            desc='Semi-hournly typical values',
+        ):
             for b in range(48):
     
                 timestamp = day + pd.Timedelta(minutes=30 * b + 15)
@@ -138,8 +176,7 @@ class BaselineEstimator:
                 last_fwhm = np.nan
                 last_fwhm_stat = np.nan
 
-                target_mask = (self.df["day"] == day) & (self.df["bin30"] == b)
-                target_n_samples = int(np.isfinite(self.df.loc[target_mask, "x"]).sum())
+                target_n_samples = int(target_counts[day_idx, b])
                 if target_n_samples == 0:
                     status_value = "missing_input"
                     results.append((timestamp, np.nan))
@@ -158,30 +195,58 @@ class BaselineEstimator:
                         last_fwhm_stat,
                     ))
                     continue
+
+                current_half = window_days // 2
+                current_lo = max(0, day_idx - current_half)
+                current_hi = min(days.size - 1, day_idx + current_half)
+                current_chunks, n_samples = _collect_step_1c_window_chunks(
+                    residuals_by_bin[b],
+                    current_lo,
+                    current_hi,
+                )
+                fwhm_sum_window = float(np.sum(fwhm_sums[current_lo:current_hi + 1, b]))
+                fwhm_count_window = int(np.sum(fwhm_counts[current_lo:current_hi + 1, b]))
     
                 while window_days <= max_window_days:
-                    half = window_days // 2
-    
-                    mask = (
-                        (self.df["day"] >= day - pd.Timedelta(days=half)) &
-                        (self.df["day"] <= day + pd.Timedelta(days=half)) &
-                        (self.df["bin30"] == b)
-                    )
-    
-                    window_df = (
-                        self.df.loc[mask, ["day", "residual_step_1"]]
-                        .dropna(subset=["residual_step_1"])
-                        .copy()
-                    )
-                    vals = window_df["residual_step_1"].values
-                    n_samples = len(vals)
                     max_n_samples = max(max_n_samples, n_samples)
                     
                     if n_samples < 5:
-                        window_days += 2
+                        (
+                            window_days,
+                            current_lo,
+                            current_hi,
+                            current_chunks,
+                            n_samples,
+                            fwhm_sum_window,
+                            fwhm_count_window,
+                        ) = _expand_step_1c_window(
+                            day_idx=day_idx,
+                            num_days=days.size,
+                            current_window_days=window_days,
+                            max_window_days=max_window_days,
+                            current_lo=current_lo,
+                            current_hi=current_hi,
+                            current_chunks=current_chunks,
+                            current_n_samples=n_samples,
+                            residual_day_arrays=residuals_by_bin[b],
+                            fwhm_sums_bin=fwhm_sums[:, b],
+                            fwhm_counts_bin=fwhm_counts[:, b],
+                            current_fwhm_sum=fwhm_sum_window,
+                            current_fwhm_count=fwhm_count_window,
+                        )
                         continue
+
+                    vals = (
+                        current_chunks[0]
+                        if len(current_chunks) == 1
+                        else np.concatenate(current_chunks)
+                    )
     
-                    FWHM_stat = np.mean(self.df.loc[mask, "FWHM_stat"].dropna().values)
+                    FWHM_stat = (
+                        fwhm_sum_window / fwhm_count_window
+                        if fwhm_count_window > 0
+                        else np.nan
+                    )
                     
                     need_diagnostics = plot_this_diagnostic
                     if need_diagnostics:
@@ -204,7 +269,8 @@ class BaselineEstimator:
                         )
                         _add_step_1c_per_day_diagnostics(
                             diagnostics=diag,
-                            window_df=window_df,
+                            day_values=days[current_lo:current_hi + 1],
+                            day_arrays=residuals_by_bin[b][current_lo:current_hi + 1],
                             target_day=day,
                         )
                         plot_diag = diag
@@ -229,10 +295,33 @@ class BaselineEstimator:
                     # to Gaussian FWHM for the acceptance test.
                     if np.isfinite(sigma) and sigma <= FWHM_stat:
                         value = mu
+                        last_sigma_weight = get_weight_sigma(vals, mu, sigma)
                         status_value = "ok"
                         break
                     status_value = "fwhm_rejected"
-                    window_days += 2
+                    (
+                        window_days,
+                        current_lo,
+                        current_hi,
+                        current_chunks,
+                        n_samples,
+                        fwhm_sum_window,
+                        fwhm_count_window,
+                    ) = _expand_step_1c_window(
+                        day_idx=day_idx,
+                        num_days=days.size,
+                        current_window_days=window_days,
+                        max_window_days=max_window_days,
+                        current_lo=current_lo,
+                        current_hi=current_hi,
+                        current_chunks=current_chunks,
+                        current_n_samples=n_samples,
+                        residual_day_arrays=residuals_by_bin[b],
+                        fwhm_sums_bin=fwhm_sums[:, b],
+                        fwhm_counts_bin=fwhm_counts[:, b],
+                        current_fwhm_sum=fwhm_sum_window,
+                        current_fwhm_count=fwhm_count_window,
+                    )
 
                 if not np.isfinite(value):
                     sigma = np.nan
@@ -305,7 +394,13 @@ class BaselineEstimator:
         a=None,
         sigma_days=None,
     ):
-        """Step 1d: smooth the semi-hourly estimates and resample to full cadence."""
+        """
+        Smooth the accepted semi-hourly estimates and resample them to 1-minute cadence.
+
+        Nodes flagged as `missing_input` in Step 1c are forced back to `NaN`
+        after smoothing so that true raw-data gaps remain gaps in the final
+        `QD` product.
+        """
         a = self.step_1d_a if a is None else a
         sigma_days = self.step_1d_sigma_days if sigma_days is None else sigma_days
 
@@ -341,7 +436,12 @@ class BaselineEstimator:
         reuse_step_1c_checkpoint=False,
         write_step_1c_checkpoint=False,
     ):
-        """Compute the full daily baseline term."""
+        """
+        Compute the full daily baseline term for this component.
+
+        The expensive Step 1c stage can be loaded from a checkpoint when the
+        current time grid matches the saved one.
+        """
         self.step_1a()
         self.step_1b()
         checkpoint_path = None if step_1c_checkpoint_path is None else Path(step_1c_checkpoint_path)
@@ -362,7 +462,7 @@ class BaselineEstimator:
         self.step_1e()
 
     def get_QY(self, step_2b_a=None, step_2b_sigma_days=None):
-        """Compute the yearly trend term."""
+        """Compute the yearly baseline term for this component."""
         self.step_2a()
         self.step_2b(a=step_2b_a, sigma_days=step_2b_sigma_days)
         self.step_2c()
@@ -447,7 +547,7 @@ class BaselineEstimator:
         self.df["QY"] = y_interp
 
     def step_2c(self):
-        """Step 2c: subtract the yearly trend from the daily-corrected series."""
+        """Subtract `QY` from `x_QD` to form the twice-corrected residual `x_QD_QY`."""
         self.df['x_QD_QY'] = self.df['x_QD'] - self.df['QY']
 
     def save_step_1c_checkpoint(self, path):
@@ -478,7 +578,12 @@ class BaselineEstimator:
         pd.to_pickle(payload, path)
 
     def load_step_1c_checkpoint(self, path):
-        """Load previously computed Step 1c outputs for the current record."""
+        """
+        Load previously computed Step 1c outputs for the current record.
+
+        The loader checks that the saved component name and the expected
+        semi-hourly target timestamps match the current estimator.
+        """
         payload = pd.read_pickle(Path(path))
         if payload.get("component") != self.component:
             raise ValueError(
@@ -658,7 +763,10 @@ def get_typical_value(
     return_diagnostics=False,
 ):
     """Estimate the paper-style typical value and spread."""
-    mu, sigma, diagnostics = _get_typical_value_paper_mode(vals)
+    mu, sigma, diagnostics = _get_typical_value_paper_mode(
+        vals,
+        return_diagnostics=return_diagnostics,
+    )
 
     if return_diagnostics:
         return mu, sigma, diagnostics
@@ -698,6 +806,7 @@ def _get_typical_value_paper_mode(
     vals,
     bin_width=1.0,
     min_samples=15,
+    return_diagnostics=True,
 ):
     """
     Estimate the paper-style typical value using fixed 1 nT histogram bins.
@@ -723,45 +832,52 @@ def _get_typical_value_paper_mode(
     modal_bins = np.flatnonzero(counts == np.max(counts))
     mode_value = float(np.mean(centers[modal_bins]))
 
-    diagnostics = {
-        "centers": centers,
-        "counts": counts,
-        "widths": np.diff(edges),
-        "mode_value": mode_value,
-        "typical_value": mode_value,
-        "fit_success": False,
-        "amplitude": np.nan,
-        "mu_fit": np.nan,
-        "sigma_fit": np.nan,
-        "method": "paper_mode",
-        "bin_width": float(bin_width),
-        "min_samples": int(min_samples),
-        "spike_replaced": False,
-        "failure_reason": None,
-    }
+    if not return_diagnostics:
+        diagnostics = None
+    else:
+        diagnostics = {
+            "centers": centers,
+            "counts": counts,
+            "widths": np.diff(edges),
+            "mode_value": mode_value,
+            "typical_value": mode_value,
+            "fit_success": False,
+            "amplitude": np.nan,
+            "mu_fit": np.nan,
+            "sigma_fit": np.nan,
+            "method": "paper_mode",
+            "bin_width": float(bin_width),
+            "min_samples": int(min_samples),
+            "spike_replaced": False,
+            "failure_reason": None,
+        }
 
     if vals.size < min_samples:
-        diagnostics["failure_reason"] = "too_few_samples_for_histogram"
+        if diagnostics is not None:
+            diagnostics["failure_reason"] = "too_few_samples_for_histogram"
         return np.nan, np.nan, diagnostics
 
     if np.all(vals == vals[0]):
-        diagnostics["failure_reason"] = "constant_values"
+        if diagnostics is not None:
+            diagnostics["failure_reason"] = "constant_values"
         return np.nan, np.nan, diagnostics
 
     populated = counts > 0
     if np.sum(populated) < 3:
-        diagnostics["failure_reason"] = "too_few_populated_fit_bins"
+        if diagnostics is not None:
+            diagnostics["failure_reason"] = "too_few_populated_fit_bins"
         return mode_value, np.nan, diagnostics
 
     second_peak_count = _get_second_peak_count(counts, modal_bins)
     mode_count = float(np.max(counts))
-    diagnostics["mode_count"] = mode_count
-    diagnostics["second_peak_count"] = second_peak_count
-    diagnostics["mode_dominance"] = (
-        mode_count / second_peak_count
-        if second_peak_count > 0
-        else np.inf
-    )
+    if diagnostics is not None:
+        diagnostics["mode_count"] = mode_count
+        diagnostics["second_peak_count"] = second_peak_count
+        diagnostics["mode_dominance"] = (
+            mode_count / second_peak_count
+            if second_peak_count > 0
+            else np.inf
+        )
 
     fit_weight_sum = np.sum(counts)
     mu0 = np.sum(centers * counts) / fit_weight_sum
@@ -799,29 +915,33 @@ def _get_typical_value_paper_mode(
         sigma_fit = np.nan
         fit_success = False
 
-    diagnostics["fit_success"] = fit_success
-    diagnostics["amplitude"] = float(amplitude) if np.isfinite(amplitude) else np.nan
-    diagnostics["mu_fit"] = float(mu_fit) if np.isfinite(mu_fit) else np.nan
-    diagnostics["sigma_fit"] = float(sigma_fit) if np.isfinite(sigma_fit) else np.nan
-    diagnostics["fit_mu_minus_mode"] = (
-        float(mu_fit - mode_value)
-        if np.isfinite(mu_fit) and np.isfinite(mode_value)
-        else np.nan
-    )
+    if diagnostics is not None:
+        diagnostics["fit_success"] = fit_success
+        diagnostics["amplitude"] = float(amplitude) if np.isfinite(amplitude) else np.nan
+        diagnostics["mu_fit"] = float(mu_fit) if np.isfinite(mu_fit) else np.nan
+        diagnostics["sigma_fit"] = float(sigma_fit) if np.isfinite(sigma_fit) else np.nan
+        diagnostics["fit_mu_minus_mode"] = (
+            float(mu_fit - mode_value)
+            if np.isfinite(mu_fit) and np.isfinite(mode_value)
+            else np.nan
+        )
 
     if not fit_success or not np.isfinite(sigma_fit):
-        diagnostics["failure_reason"] = "gaussian_fit_failed"
+        if diagnostics is not None:
+            diagnostics["failure_reason"] = "gaussian_fit_failed"
         return mode_value, np.nan, diagnostics
 
     left = max(int(modal_bins[0]) - 1, 0)
     right = min(int(modal_bins[-1]) + 1, counts.size - 1)
     eq4_local_mean = float(np.mean(counts[left:right + 1]))
-    diagnostics["eq4_local_mean"] = eq4_local_mean
-    diagnostics["eq4_condition_met"] = (
+    eq4_condition_met = (
         bool(amplitude > eq4_local_mean)
         if np.isfinite(amplitude)
         else False
     )
+    if diagnostics is not None:
+        diagnostics["eq4_local_mean"] = eq4_local_mean
+        diagnostics["eq4_condition_met"] = eq4_condition_met
 
     # The paper wording around eq. (4) is internally inconsistent. This
     # implementation follows the only interpretation that matches the spike-
@@ -829,15 +949,17 @@ def _get_typical_value_paper_mode(
     # exceeds the local three-bin average around the modal region; otherwise use
     # the Gaussian center to avoid isolated-bin spikes.
     typical_value = mode_value
-    if not diagnostics["eq4_condition_met"] and np.isfinite(mu_fit):
+    if not eq4_condition_met and np.isfinite(mu_fit):
         typical_value = float(mu_fit)
-        diagnostics["spike_replaced"] = True
+        if diagnostics is not None:
+            diagnostics["spike_replaced"] = True
 
-    diagnostics["typical_value"] = float(typical_value)
-    x_fit = np.linspace(edges[0], edges[-1], 512)
-    diagnostics["x_fit"] = x_fit
-    diagnostics["y_fit"] = _gaussian_pdf_shape(x_fit, amplitude, mu_fit, sigma_fit)
-    diagnostics["edges"] = edges
+    if diagnostics is not None:
+        diagnostics["typical_value"] = float(typical_value)
+        x_fit = np.linspace(edges[0], edges[-1], 512)
+        diagnostics["x_fit"] = x_fit
+        diagnostics["y_fit"] = _gaussian_pdf_shape(x_fit, amplitude, mu_fit, sigma_fit)
+        diagnostics["edges"] = edges
 
     return typical_value, sigma_fit, diagnostics
 
@@ -859,27 +981,25 @@ def _fixed_width_histogram(vals, bin_width=1.0):
     return counts, edges
 
 
-def _add_step_1c_per_day_diagnostics(diagnostics, window_df, target_day):
+def _add_step_1c_per_day_diagnostics(diagnostics, day_values, day_arrays, target_day):
     """Attach per-day histogram counts for Step 1c diagnostic plots."""
     edges = diagnostics.get("edges")
     if not isinstance(edges, np.ndarray) or edges.ndim != 1 or edges.size < 2:
         return
-    if window_df.empty:
+    if len(day_values) == 0:
         return
 
     grouped = []
     target_day = pd.Timestamp(target_day).normalize()
-    unique_days = np.sort(window_df["day"].unique())
-    for day_value in unique_days:
+    for day_value, day_vals in zip(day_values, day_arrays):
         day_ts = pd.Timestamp(day_value).normalize()
-        day_vals = window_df.loc[window_df["day"] == day_value, "residual_step_1"].values
+        day_vals = np.asarray(day_vals, dtype=float)
         if day_vals.size == 0:
             continue
         counts, _ = np.histogram(day_vals, bins=edges)
         grouped.append(
             (
                 int((day_ts - target_day).days),
-                day_ts.strftime("%m-%d"),
                 counts.astype(float),
             )
         )
@@ -888,10 +1008,116 @@ def _add_step_1c_per_day_diagnostics(diagnostics, window_df, target_day):
         return
 
     diagnostics["per_day_offsets"] = np.asarray([item[0] for item in grouped], dtype=int)
-    diagnostics["per_day_counts"] = np.vstack([item[2] for item in grouped])
+    diagnostics["per_day_counts"] = np.vstack([item[1] for item in grouped])
     diagnostics["per_day_day_centers"] = np.asarray(
         [float(item[0]) for item in grouped],
         dtype=float,
+    )
+
+
+def _prepare_step_1c_day_bin_cache(df, days):
+    """Precompute per-day/per-bin arrays so Step 1c avoids repeated dataframe masking."""
+    num_days = len(days)
+    num_bins = 48
+    empty = np.empty(0, dtype=float)
+    residuals_by_bin = [[empty for _ in range(num_days)] for _ in range(num_bins)]
+    target_counts = np.zeros((num_days, num_bins), dtype=int)
+    fwhm_sums = np.zeros((num_days, num_bins), dtype=float)
+    fwhm_counts = np.zeros((num_days, num_bins), dtype=int)
+
+    day_to_idx = {pd.Timestamp(day): i for i, day in enumerate(days)}
+    for (day_value, bin_value), group in df.groupby(["day", "bin30"], sort=False):
+        day_idx = day_to_idx[pd.Timestamp(day_value)]
+        bin_idx = int(bin_value)
+
+        x_vals = group["x"].to_numpy(dtype=float)
+        target_counts[day_idx, bin_idx] = int(np.isfinite(x_vals).sum())
+
+        residual_vals = group["residual_step_1"].to_numpy(dtype=float)
+        finite_residual = np.isfinite(residual_vals)
+        residuals_by_bin[bin_idx][day_idx] = residual_vals[finite_residual]
+
+        fwhm_vals = group["FWHM_stat"].to_numpy(dtype=float)
+        finite_fwhm = np.isfinite(fwhm_vals)
+        if np.any(finite_fwhm):
+            fwhm_sums[day_idx, bin_idx] = float(np.sum(fwhm_vals[finite_fwhm]))
+            fwhm_counts[day_idx, bin_idx] = int(np.sum(finite_fwhm))
+
+    return residuals_by_bin, target_counts, fwhm_sums, fwhm_counts
+
+
+def _collect_step_1c_window_chunks(day_arrays, lo, hi):
+    """Return the non-empty residual arrays and sample count for one day window."""
+    chunks = []
+    n_samples = 0
+    for arr in day_arrays[lo:hi + 1]:
+        if arr.size == 0:
+            continue
+        chunks.append(arr)
+        n_samples += arr.size
+    return chunks, n_samples
+
+
+def _expand_step_1c_window(
+    day_idx,
+    num_days,
+    current_window_days,
+    max_window_days,
+    current_lo,
+    current_hi,
+    current_chunks,
+    current_n_samples,
+    residual_day_arrays,
+    fwhm_sums_bin,
+    fwhm_counts_bin,
+    current_fwhm_sum,
+    current_fwhm_count,
+):
+    """Expand one Step 1c day window by two days and update cached aggregates."""
+    next_window_days = current_window_days + 2
+    if next_window_days > max_window_days:
+        return (
+            next_window_days,
+            current_lo,
+            current_hi,
+            current_chunks,
+            current_n_samples,
+            current_fwhm_sum,
+            current_fwhm_count,
+        )
+
+    next_half = next_window_days // 2
+    next_lo = max(0, day_idx - next_half)
+    next_hi = min(num_days - 1, day_idx + next_half)
+    chunks = list(current_chunks)
+    n_samples = int(current_n_samples)
+    fwhm_sum = float(current_fwhm_sum)
+    fwhm_count = int(current_fwhm_count)
+
+    if next_lo < current_lo:
+        left_arr = residual_day_arrays[next_lo]
+        if left_arr.size > 0:
+            chunks.append(left_arr)
+            n_samples += left_arr.size
+        fwhm_sum += float(fwhm_sums_bin[next_lo])
+        fwhm_count += int(fwhm_counts_bin[next_lo])
+
+    if next_hi > current_hi:
+        right_arr = residual_day_arrays[next_hi]
+        if right_arr.size > 0:
+            chunks.append(right_arr)
+            n_samples += right_arr.size
+        fwhm_sum += float(fwhm_sums_bin[next_hi])
+        fwhm_count += int(fwhm_counts_bin[next_hi])
+
+    return (
+        next_window_days,
+        next_lo,
+        next_hi,
+        chunks,
+        n_samples,
+        fwhm_sum,
+        fwhm_count,
     )
 
 
@@ -967,6 +1193,8 @@ def _fmt_diag_value(value, decimals=1):
 def _gaussian_pdf_shape(x, amplitude, mu, sigma):
     """Evaluate a Gaussian on histogram-bin centers."""
     return amplitude * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+
+
 
 
 def _normalize_time_range(time_range):
