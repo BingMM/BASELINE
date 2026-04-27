@@ -129,6 +129,10 @@ class BaselineEstimator:
         - a typical value passes the `sigma <= FWHM_stat` acceptance test, or
         - the available time span is exhausted.
 
+        To avoid repeated dataframe masking in the inner loop, the per-day/per-
+        bin residual arrays and FWHM statistics are cached once up front and
+        widened incrementally as the window grows.
+
         Bins with no data on the target day are marked `missing_input` and are
         skipped immediately instead of being estimated from neighboring days.
         """
@@ -248,8 +252,7 @@ class BaselineEstimator:
                         else np.nan
                     )
                     
-                    need_diagnostics = plot_this_diagnostic
-                    if need_diagnostics:
+                    if plot_this_diagnostic:
                         mu, sigma, diag = self._estimate_typical_value(
                             vals,
                             return_diagnostics=True,
@@ -280,14 +283,35 @@ class BaselineEstimator:
                     last_mu = mu
                     last_sigma = sigma
                     last_fwhm_stat = FWHM_stat
-                    sigma_weight = get_weight_sigma(vals, mu, sigma)
-                    last_sigma_weight = sigma_weight
 
                     if not np.isfinite(mu) or not np.isfinite(sigma):
                         status_value = "typical_value_failed"
-                        window_days += 2
+                        (
+                            window_days,
+                            current_lo,
+                            current_hi,
+                            current_chunks,
+                            n_samples,
+                            fwhm_sum_window,
+                            fwhm_count_window,
+                        ) = _expand_step_1c_window(
+                            day_idx=day_idx,
+                            num_days=days.size,
+                            current_window_days=window_days,
+                            max_window_days=max_window_days,
+                            current_lo=current_lo,
+                            current_hi=current_hi,
+                            current_chunks=current_chunks,
+                            current_n_samples=n_samples,
+                            residual_day_arrays=residuals_by_bin[b],
+                            fwhm_sums_bin=fwhm_sums[:, b],
+                            fwhm_counts_bin=fwhm_counts[:, b],
+                            current_fwhm_sum=fwhm_sum_window,
+                            current_fwhm_count=fwhm_count_window,
+                        )
                         continue
-                    
+
+                    last_sigma_weight = get_weight_sigma(vals, mu, sigma)
                     last_fwhm = 2.355 * sigma
 
                     # Eq. 8 compares Gaussian sigma directly to the empirical
@@ -295,7 +319,6 @@ class BaselineEstimator:
                     # to Gaussian FWHM for the acceptance test.
                     if np.isfinite(sigma) and sigma <= FWHM_stat:
                         value = mu
-                        last_sigma_weight = get_weight_sigma(vals, mu, sigma)
                         status_value = "ok"
                         break
                     status_value = "fwhm_rejected"
@@ -1016,7 +1039,15 @@ def _add_step_1c_per_day_diagnostics(diagnostics, day_values, day_arrays, target
 
 
 def _prepare_step_1c_day_bin_cache(df, days):
-    """Precompute per-day/per-bin arrays so Step 1c avoids repeated dataframe masking."""
+    """
+    Precompute per-day/per-bin arrays for the Step 1c inner loop.
+
+    This turns the original repeated dataframe masking into direct numpy-array
+    access for:
+    - target-day finite sample counts
+    - residual samples grouped by day and 30-minute bin
+    - summed/count FWHM statistics for the same grid
+    """
     num_days = len(days)
     num_bins = 48
     empty = np.empty(0, dtype=float)
@@ -1073,7 +1104,12 @@ def _expand_step_1c_window(
     current_fwhm_sum,
     current_fwhm_count,
 ):
-    """Expand one Step 1c day window by two days and update cached aggregates."""
+    """
+    Expand one Step 1c day window by two days and update cached aggregates.
+
+    The returned `current_chunks`, sample count, and FWHM accumulators stay in
+    sync with the returned `window_days/current_lo/current_hi` state.
+    """
     next_window_days = current_window_days + 2
     if next_window_days > max_window_days:
         return (
