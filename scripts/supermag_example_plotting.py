@@ -245,9 +245,14 @@ def save_chunked_component_triplet(
     subdir_name,
     prefix,
     chunk_days,
+    progress_label=None,
 ):
     """Write one three-panel component plot per time chunk."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
+    chunks = list(iter_time_chunks(t, chunk_days))
+    total = len(chunks)
+    for chunk_idx, (start_time, stop_time, view_slice) in enumerate(chunks, start=1):
+        if progress_label and (chunk_idx == 1 or chunk_idx % 25 == 0 or chunk_idx == total):
+            print(f"{progress_label}: chunk {chunk_idx}/{total}")
         if not any_series_has_finite(components, view_slice):
             continue
         fig, axs = plt.subplots(3, 1, figsize=(15, 9), sharex=True)
@@ -263,9 +268,14 @@ def save_chunked_component_comparison(
     subdir_name,
     prefix,
     chunk_days,
+    progress_label=None,
 ):
     """Write one three-panel comparison plot per time chunk."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
+    chunks = list(iter_time_chunks(t, chunk_days))
+    total = len(chunks)
+    for chunk_idx, (start_time, stop_time, view_slice) in enumerate(chunks, start=1):
+        if progress_label and (chunk_idx == 1 or chunk_idx % 25 == 0 or chunk_idx == total):
+            print(f"{progress_label}: chunk {chunk_idx}/{total}")
         reference_series = [reference for reference, _ in component_pairs]
         if not any_series_has_finite(reference_series, view_slice):
             continue
@@ -274,9 +284,20 @@ def save_chunked_component_comparison(
         save_example_figure(fig, example_figure_dir, subdir_name, chunk_filename(prefix, start_time, stop_time))
 
 
-def save_chunked_qd_comp_triplet(example_figure_dir, t, component_specs, chunk_days, error_plot):
+def save_chunked_qd_comp_triplet(
+    example_figure_dir,
+    t,
+    component_specs,
+    chunk_days,
+    error_plot,
+    progress_label=None,
+):
     """Write the three-component QD comparison plot per chunk."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
+    chunks = list(iter_time_chunks(t, chunk_days))
+    total = len(chunks)
+    for chunk_idx, (start_time, stop_time, view_slice) in enumerate(chunks, start=1):
+        if progress_label and (chunk_idx == 1 or chunk_idx % 25 == 0 or chunk_idx == total):
+            print(f"{progress_label}: chunk {chunk_idx}/{total}")
         input_series = [input_values for input_values, _, _, _ in component_specs]
         if not any_series_has_finite(input_series, view_slice):
             continue
@@ -296,9 +317,14 @@ def save_chunked_estimator_plot(
     subdir_name,
     prefix,
     figure_builder,
+    progress_label=None,
 ):
     """Write one estimator plot per time chunk using a supplied figure builder."""
-    for start_time, stop_time, view_slice in iter_time_chunks(t, chunk_days):
+    chunks = list(iter_time_chunks(t, chunk_days))
+    total = len(chunks)
+    for chunk_idx, (start_time, stop_time, view_slice) in enumerate(chunks, start=1):
+        if progress_label and (chunk_idx == 1 or chunk_idx % 25 == 0 or chunk_idx == total):
+            print(f"{progress_label}: chunk {chunk_idx}/{total}")
         if not slice_has_finite(finite_values, view_slice):
             continue
         fig = figure_builder(estimator, view_slice, start_time, stop_time)
@@ -434,6 +460,7 @@ def save_step_chunks(
     finite_values,
     subdir_name,
     figure_builder,
+    progress_label=None,
 ):
     """Write the full-year chunk set for one estimator plot family."""
     save_chunked_estimator_plot(
@@ -445,4 +472,5 @@ def save_step_chunks(
         subdir_name,
         subdir_name,
         figure_builder,
+        progress_label=progress_label,
     )

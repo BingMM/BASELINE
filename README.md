@@ -57,15 +57,38 @@ residual = baseline_n.df["x_QD_QY"]
 ## Repository Layout
 
 - [`baseline/`](baseline/) contains the installable package
+- [`baseline_v2/`](baseline_v2/) contains the next-generation experimental package
 - [`scripts/`](scripts/) contains local example and data-generation scripts
-- [`documentation/`](documentation/) contains the reference paper
+- [`documentation/`](documentation/) contains the reference paper and project
+  design notes
 - [`data/`](data/) contains synthetic example data
 
 ## Notes on the Implementation
 
 - The paper does not fully specify all weighting and typical-value details.
-- The current implementation uses an IRLS-based robust typical-value estimator rather than reproducing the paper's histogram-mode logic exactly.
+- The current `main` branch uses a paper-style histogram-based typical-value
+  estimator for Step 1c.
 - The weighting used in the smoothing stages is still a modeling choice and should be treated as provisional.
+
+Additional documentation:
+
+- [`documentation/BASELINE_algorithm.md`](documentation/BASELINE_algorithm.md)
+  documents the current reference implementation.
+- [`documentation/BASELINE_v2_design.md`](documentation/BASELINE_v2_design.md)
+  describes the proposed next-generation `baseline_v2` architecture.
+
+## V2 Status
+
+The `baseline_v2` branch now contains a self-contained native V2 pipeline with:
+
+- typed V2 inputs/results/configuration
+- a native modified-variance engine
+- a native reference baseline pipeline
+- an experimental robust Step 1c mode based on a dominant histogram region
+
+The current V2 example script is:
+
+- [`scripts/example_with_supermag_data_v2.py`](scripts/example_with_supermag_data_v2.py)
 
 ## Development Status
 
