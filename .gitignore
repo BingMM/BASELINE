@@ -16,4 +16,4 @@ env/
 .DS_Store
 
 figures/QD_diag/
-BASELINE_vault/
+BASELINE_vault/.obsidian/
