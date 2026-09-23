@@ -1,5 +1,15 @@
 # Decision Log
 
+## 2026-07-26 - Standardize the vault root
+
+Decision: Store project memory at the repository-root `vault/` path.
+
+Rationale: A single path across all projects makes project-agent startup,
+handoffs, synchronization, and human navigation predictable.
+
+This changes documentation paths only and does not change scientific or
+implementation state.
+
 ## 2026-04-20 - Keep Vault As AI Project Memory
 
 Decision: This vault is for AI continuity, not the user's notes. Future AI sessions should read it to recover project context and should update it when durable project understanding changes.
@@ -83,4 +93,4 @@ Rationale:
   context and prevents the handoff from becoming an archive.
 
 The Markdown vault is now intended to be tracked in Git. Only local Obsidian
-workspace state under `BASELINE_vault/.obsidian/` remains ignored.
+workspace state under `vault/.obsidian/` remains ignored.

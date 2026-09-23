@@ -18,12 +18,12 @@ worktree, recent commits, and live code before editing.
 
 Before substantive project work, read:
 
-1. `BASELINE_vault/01_Project/Current State.md`
-2. `BASELINE_vault/05_Handoff/Handoff - Latest.md`
-3. `BASELINE_vault/01_Project/Project Brief.md`
+1. `vault/01_Project/Current State.md`
+2. `vault/05_Handoff/Handoff - Latest.md`
+3. `vault/01_Project/Project Brief.md`
 
 Then read the relevant decision or algorithm note only as needed. Treat
-`BASELINE_vault/04_Sessions/` as history, not mandatory startup context.
+`vault/04_Sessions/` as history, not mandatory startup context.
 
 The authority order is:
 
@@ -48,6 +48,43 @@ live memory notes when the task changes project understanding.
 - Do not run the expensive full-year examples unless the task requires them.
 - Keep `Handoff - Latest.md` concise and replace obsolete content instead of
   appending indefinitely.
+
+## Scientific coding style
+
+- Write for a small research group. The expected reader is a student or
+  scientist who should be able to follow the calculation from top to bottom.
+- Write for a scientist reading the code interactively in an editor. Make
+  workflows visually scannable with `#%%` sections where appropriate, blank
+  lines between conceptual stages, and short comments that identify each block.
+- Keep the main calculation linear and visible from top to bottom. Prefer
+  familiar intermediate variables and explicit operations over nested
+  expressions, generic plumbing, or compressed control flow.
+- Extract a helper when it represents a distinct calculation or removes
+  meaningful repetition. Do not hide a few obvious sequential steps behind an
+  abstraction merely to shorten the main function.
+- Comments may serve as navigational headings even when the underlying Python
+  is straightforward. Treat formatter conventions and line-length targets as
+  secondary to human readability, while avoiding ambiguous or unwieldy code.
+- Use nearby code as the stylistic baseline, not as a ceiling. Do not copy weak
+  patterns blindly: identify scientific, numerical, or code choices that could
+  be improved, explain the tradeoff, and propose a clearer or safer alternative.
+- Adopt improvements when they materially improve correctness,
+  reproducibility, clarity, or demonstrated performance. Do not add complexity
+  merely because it is conventional in large production systems.
+- Let complexity follow the science, numerical method, or actual reuse
+  requirements. Prefer direct functions, NumPy arrays, ordinary loops and
+  dictionaries, and keep the main calculation visible in execution order.
+- Unless current requirements justify them, avoid dataclasses, manager or
+  factory classes, generic schemas, version and compatibility frameworks,
+  checkpoint/resume machinery, and speculative extension points.
+- Retain scientific rigor: make units, coordinates, assumptions, provenance,
+  and uncertainty explicit, and add focused tests or reference comparisons for
+  consequential calculations.
+- Scale packaging, validation, documentation, and abstractions to the code's
+  real reuse. A reusable package may justify more structure, but that structure
+  should solve a current, explained need.
+- If a nominally small feature grows beyond roughly 200 lines or more than two
+  new source files, pause and explain why before continuing.
 
 ## Verification
 
@@ -74,12 +111,27 @@ Those examples require `netCDF4` and `apexpy`, which are not declared in the
 base `pyproject.toml`, and they can generate or overwrite many checkpoints and
 figures. Confirm the environment and intended output scope before running them.
 
-## Memory closeout
+## Automatic memory checkpoints
 
-After a meaningful project session:
+Project-memory maintenance is a default responsibility. Do not wait for the
+user to request a vault update or announce that a session is ending.
 
-1. create one session note named for the actual date;
-2. update `Current State.md` if the live project state changed;
+Checkpoint after a verified fix or result, a durable implementation or
+scientific decision, a changed blocker or next action, and any milestone that
+would otherwise leave important understanding only in the conversation.
+
+At a meaningful checkpoint:
+
+1. create a session note named for the actual date only when history is worth
+   preserving;
+2. update `Current State.md` if verified live state changed;
 3. append only durable decisions to the decision log;
 4. replace the latest handoff with the next actionable state;
-5. update algorithm notes only when the scientific interpretation changed.
+5. update algorithm notes only when the scientific interpretation changed;
+6. refresh the handoff's `Portfolio impact` section, using `Central update
+   needed: No` when no portfolio-level information changed.
+
+Do not write raw logs, transient speculation, or unchanged state into the
+vault. An explicit read-only or no-file-changes request disables automatic
+memory writes for that task. Do not edit the central second brain directly;
+communicate portfolio changes through the latest handoff.

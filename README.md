@@ -62,7 +62,7 @@ residual = baseline_n.df["x_QD_QY"]
 - [`documentation/`](documentation/) contains the reference paper and project
   design notes
 - [`data/`](data/) contains synthetic example data
-- [`BASELINE_vault/`](BASELINE_vault/) contains versioned project memory for
+- [`vault/`](vault/) contains versioned project memory for
   AI-assisted continuity; [`AGENTS.md`](AGENTS.md) is the automatic Codex entry
   point
 

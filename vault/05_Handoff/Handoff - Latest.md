@@ -85,8 +85,16 @@ dependencies.
 - `TODO.md` and parts of `documentation/BASELINE_v2_design.md` need a separate
   live-code audit because they still contain proposal-era or legacy wording.
 
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: BASELINE remains paused with no recorded deadline. The next
+  portfolio decision remains whether robust V2 Step 1c is sufficiently
+  accurate, stable, and reproducibly faster than the reference path.
+
 ## Historical detail
 
 The former 632-line handoff is preserved at
-`BASELINE_vault/04_Sessions/Handoff Archive - 2026-04-28.md`. Read it only when
+`vault/04_Sessions/Handoff Archive - 2026-04-28.md`. Read it only when
 investigating a specific prior decision or result.
