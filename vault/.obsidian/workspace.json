@@ -1,0 +1,223 @@
+{
+  "main": {
+    "id": "54fe59fd342c155f",
+    "type": "split",
+    "children": [
+      {
+        "id": "476679c9eca13dc0",
+        "type": "tabs",
+        "dimension": 70.29411764705881,
+        "children": [
+          {
+            "id": "f4d93de6ebabbbe1",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "START HERE - AI Onboarding.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "START HERE - AI Onboarding"
+            }
+          }
+        ]
+      },
+      {
+        "id": "f5a1b575b6d1951e",
+        "type": "tabs",
+        "dimension": 29.705882352941178,
+        "children": [
+          {
+            "id": "70e417bf9d30ad8e",
+            "type": "leaf",
+            "state": {
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "6d893b6d9b7f6b0e",
+    "type": "split",
+    "children": [
+      {
+        "id": "4c807d02d74979d2",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "fc5ef0dca930ee41",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "1fd9b401bd8b3f1e",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "b0f85b26035ac049",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "9bea083f2edaa5c2",
+    "type": "split",
+    "children": [
+      {
+        "id": "aa3829cd5c6449e3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "32292e9cb441d8bd",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "START HERE - AI Onboarding.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for START HERE - AI Onboarding"
+            }
+          },
+          {
+            "id": "f83b506c136bddf4",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "START HERE - AI Onboarding.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from START HERE - AI Onboarding"
+            }
+          },
+          {
+            "id": "bc743a7971737a4b",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "82754fcd03a3ffc6",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "10c6c910b6dce7ec",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "START HERE - AI Onboarding.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of START HERE - AI Onboarding"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "f4d93de6ebabbbe1",
+  "lastOpenFiles": [
+    "04_Sessions/2026-04-20.md",
+    "START HERE - AI Onboarding.md",
+    "00_Meta/Vault Conventions.md",
+    "Welcome.md",
+    "05_Handoff/Handoff - Latest.md",
+    "03_Decisions/Decision Log.md",
+    "02_Algorithm/Typical Value Estimator.md",
+    "02_Algorithm/Daily Baseline QD.md",
+    "01_Project/Current State.md",
+    "01_Project/Project Brief.md",
+    "05_Handoff",
+    "04_Sessions",
+    "03_Decisions",
+    "02_Algorithm",
+    "01_Project",
+    "00_Meta"
+  ]
+}
