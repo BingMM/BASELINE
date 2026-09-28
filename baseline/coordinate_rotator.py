@@ -17,18 +17,37 @@ class CoordinateRotator:
     implementation follows the same broad approach:
 
     1. Estimate an instantaneous declination from the horizontal components.
-        2. Determine one typical declination value per day using a symmetric
-           odd-day window (17 days by default).
+    2. Determine one typical declination value per day using a symmetric
+       odd-day window (17 days by default) and an angle-specific histogram.
     3. Smooth the daily declination values.
     4. Interpolate the declination back to the native cadence.
     5. Rotate X/Y into N/E and carry Z through unchanged.
+
+    ``declination_bin_width_degrees`` controls the angular resolution of the
+    typical-value histogram. It is deliberately separate from the 1 nT bin
+    width used when estimating magnetic-field baselines.
     """
 
-    def __init__(self, t, x, y, z, window_days=17, smoothing_sigma_days=30.0):
+    def __init__(
+        self,
+        t,
+        x,
+        y,
+        z,
+        window_days=17,
+        smoothing_sigma_days=30.0,
+        declination_bin_width_degrees=0.1,
+    ):
         """Store the input data and configuration for the rotation step."""
         self.df = pd.DataFrame({"datetime": t, "X": x, "Y": y, "Z": z})
         self.window_days = int(window_days)
         self.smoothing_sigma_days = float(smoothing_sigma_days)
+        self.declination_bin_width_degrees = float(declination_bin_width_degrees)
+        if (
+            not np.isfinite(self.declination_bin_width_degrees)
+            or self.declination_bin_width_degrees <= 0
+        ):
+            raise ValueError("declination_bin_width_degrees must be positive")
 
     def rotate(self):
         """
@@ -73,7 +92,10 @@ class CoordinateRotator:
             )
 
             q_values = self.df.loc[mask, "q_raw"].values
-            q_typical, _ = get_typical_value(q_values)
+            q_typical, _ = get_typical_value(
+                q_values,
+                bin_width=np.deg2rad(self.declination_bin_width_degrees),
+            )
             timestamp = day + pd.Timedelta(hours=12)
             results.append((timestamp, q_typical))
 

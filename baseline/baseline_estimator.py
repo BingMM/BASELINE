@@ -784,10 +784,18 @@ class BaselineEstimator:
 def get_typical_value(
     vals,
     return_diagnostics=False,
+    *,
+    bin_width=1.0,
 ):
-    """Estimate the paper-style typical value and spread."""
+    """Estimate the paper-style typical value and spread.
+
+    ``bin_width`` uses the same units as ``vals``. Its 1.0 default is the
+    1 nT resolution used for magnetic-field baseline estimation; callers with
+    other quantities, such as angles, must provide an appropriate resolution.
+    """
     mu, sigma, diagnostics = _get_typical_value_paper_mode(
         vals,
+        bin_width=bin_width,
         return_diagnostics=return_diagnostics,
     )
 
