@@ -1,35 +1,44 @@
 # Handoff - Latest
 
-Last updated: 2026-07-26
-Verified against: `baseline_v2` code at `d979b94`
+Last updated: 2026-09-28
+Verified against: `baseline_v2` working tree based on `954ba50`
 
 ## Project in one paragraph
 
 BASELINE reproduces the baseline-removal workflow from the 2012 SuperMAG
 data-processing paper. `baseline/` is the paper-oriented reference track.
 `baseline_v2/` is a faster array-first experimental track with both reference
-and robust Step 1c estimators. Work is currently paused on the V2 branch.
+and robust Step 1c estimators. A bounded coordinate-rotation bug fix is complete
+in the working tree; broader V2 work remains paused.
 
 ## Live repository snapshot
 
-At the 2026-07-26 documentation review:
+At the 2026-09-28 rotation checkpoint:
 
-- the worktree was clean before the onboarding changes;
-- `baseline_v2` matched `origin/baseline_v2`;
-- the latest code commit was `d979b94` from 2026-04-28;
-- the project vault and root `AGENTS.md` were integrated as versioned
-  documentation while local `.obsidian/` state remained ignored;
-- the vault integration made no source-code or scientific changes;
-- no later project work was found;
-- V2 unit tests, SuperMAG-facing scripts, checkpoints, and reference/robust
-  figure outputs were present;
-- the focused V2 suite passed 14 tests with 1 skipped, and the broad syntax
-  check passed.
+- `baseline_v2` is based on `954ba50` and tracks `origin/baseline_v2`;
+- the working tree contains the uncommitted coordinate-rotation fix, its tests,
+  and this project-memory checkpoint;
+- declination now uses a configurable `0.1 degree` histogram width instead of
+  the field estimator's `1 nT` numeric default;
+- `tests/test_coordinate_rotator.py` verifies the reported X=7500 nT,
+  Y=3000 nT geometry and recovers approximately 21.8 degrees;
+- all 16 focused tests pass and the broad Python syntax check passes;
+- the repaired rotator was run on all 525,600 samples of
+  `data/DMH_1min_2025.csv`, yielding a median declination of -12.77 degrees;
+- `figures/real_rotation.png` was regenerated and visually inspected: over its
+  first-week interval, mean Y=-1654.7 nT becomes mean E=1.0 nT;
+- downstream variance and baseline-estimation outputs were not regenerated.
 
 Inspect Git and the live code again before making changes. This snapshot is
 orientation, not authority.
 
-## Current implementation focus
+## Next action
+
+Review and commit the coordinate-rotation fix. When broader project work
+resumes, the research focus remains the V2 reference-versus-robust comparison
+below.
+
+## Paused implementation focus
 
 The next research task is to validate V2's robust dominant-region Step 1c
 estimator against the V2 reference path:
@@ -47,6 +56,9 @@ comparison that the historical work did not record formally.
 
 ## Relevant entry points
 
+- `baseline/coordinate_rotator.py`
+- `baseline/baseline_estimator.py`
+- `tests/test_coordinate_rotator.py`
 - `baseline_v2/step1c_reference.py`
 - `baseline_v2/step1c_robust.py`
 - `baseline_v2/types.py`

@@ -81,6 +81,11 @@ Implemented steps:
    - `q_raw = unwrap(arctan2(Y, X))`
 2. Estimate one typical declination value per day using a symmetric odd-day
    window.
+   - The paper-style typical-value histogram uses an angle-specific bin width
+     of `0.1 degree` by default. This is configurable through
+     `declination_bin_width_degrees`.
+   - The generic baseline estimator's default `1.0` bin width means `1 nT`
+     and must not be applied directly to angles in radians.
 3. Smooth the daily declination values.
 4. Interpolate the smoothed declination back to the full time grid.
 5. Rotate:

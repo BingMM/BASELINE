@@ -1,5 +1,16 @@
 # Decision Log
 
+## 2026-09-28 - Use Angle-Specific Bins For Declination
+
+Decision: Keep the paper-style modal estimator for declination, but use a
+configurable angular histogram width of `0.1 degree` by default.
+
+Rationale: `CoordinateRotator` produces radians while the shared typical-value
+estimator default is the fixed `1 nT` width used for field components. Treating
+that numeric default as one radian quantized ordinary station orientations to
+zero and made the rotation an identity. The field-estimation default remains
+`1 nT`; angular callers must supply an angular resolution explicitly.
+
 ## 2026-07-26 - Standardize the vault root
 
 Decision: Store project memory at the repository-root `vault/` path.

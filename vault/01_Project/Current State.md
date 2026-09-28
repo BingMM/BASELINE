@@ -1,15 +1,15 @@
 # Current State
 
-Reviewed: 2026-07-26
-Code snapshot: `baseline_v2` at `d979b94`
+Reviewed: 2026-09-28
+Code snapshot: `baseline_v2` at `954ba50` with an uncommitted coordinate-rotation fix
 Vault integration: versioned in the repository; local `.obsidian/` state ignored
 
 ## Current position
 
-Development is paused on the modern V2 track. The repository has no commits
-containing implementation changes after 2026-04-28, so the pause did not
-conceal newer code changes. The later vault-integration commit is
-documentation-only and does not change scientific or implementation state.
+Broader development remains paused on the modern V2 track. The committed
+implementation has not changed since 2026-04-28; the working tree now contains
+a bounded coordinate-rotation fix made on 2026-09-28. The later committed
+vault-integration change remains documentation-only.
 
 The repository currently contains:
 
@@ -30,8 +30,17 @@ The repository currently contains:
 - Existing V2 outputs are present under
   `figures/SM_example_v2/reference/` and
   `figures/SM_example_v2/robust/`.
-- On 2026-07-26, the focused V2 suite passed 14 tests with 1 optional
-  comparison skipped, and the broad Python syntax check passed.
+- The coordinate rotator now evaluates declination with a configurable
+  angle-specific histogram width of `0.1 degree` instead of applying the
+  baseline estimator's `1 nT` default directly to radians. The regression in
+  `tests/test_coordinate_rotator.py` recovers the expected `21.8 degree`
+  orientation for mean components near X=7500 nT and Y=3000 nT.
+- On 2026-09-28, all 16 focused tests passed and the broad Python syntax check
+  passed.
+- On the full 525,600-sample `DMH_1min_2025.csv` input, the repaired rotator
+  produced a median declination of -12.77 degrees. Over the plotted first week,
+  the mean Y component changed from -1654.7 nT to a rotated E mean of 1.0 nT.
+  `figures/real_rotation.png` was regenerated and visually inspected.
 - The old handoff claim that real-data execution was blocked by missing
   `netCDF4` is superseded as a project-state claim. Those libraries remain
   optional environment prerequisites.
@@ -43,8 +52,10 @@ The repository currently contains:
   benchmark.
 - Scientific equivalence or improvement of robust V2 over the reference path
   has not been established quantitatively.
-- Committed figures and checkpoints have not been regenerated during this
-  review.
+- Baseline-estimation figures and checkpoints have not been regenerated during
+  this review; only the coordinate-rotation figure was regenerated.
+- The coordinate-rotation fix and its project-memory checkpoint are not yet
+  committed.
 
 ## Current research focus
 
